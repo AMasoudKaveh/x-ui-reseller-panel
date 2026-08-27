@@ -1,4 +1,4 @@
-[README.md](https://github.com/user-attachments/files/31534158/README.1.md)
+[README.md](https://github.com/user-attachments/files/31534339/README-public.md)
 # X-UI Reseller Panel
 
 A modern web-based **Admin & Reseller Management Panel for X-UI / 3X-UI**.
@@ -6,6 +6,8 @@ A modern web-based **Admin & Reseller Management Panel for X-UI / 3X-UI**.
 X-UI Reseller Panel provides a separate management interface for administrators and resellers while using your existing X-UI server as the source of truth for inbounds, clients, traffic usage, and account status.
 
 It is designed for server owners who want to give resellers controlled access to create and manage users without giving them direct access to the main X-UI panel.
+
+> Public repository: https://github.com/AMasoudKaveh/x-ui-reseller-panel
 
 ---
 
@@ -64,9 +66,9 @@ Supported authentication methods:
 - X-UI API Token
 - X-UI Username / Password
 
-The installer performs an X-UI connection test before completing the installation.
+The installer performs a real X-UI connection test before completing installation.
 
-Your X-UI URL must include the full Web Base Path.
+Your X-UI URL must include the full **Web Base Path**.
 
 Example:
 
@@ -74,7 +76,7 @@ Example:
 https://example.com:2053/my-xui-path/
 ```
 
-Do **not** manually add API paths such as:
+Do not manually add API paths such as:
 
 ```text
 /panel/api/
@@ -93,55 +95,44 @@ Recommended environment:
 - Root access
 - Existing X-UI / 3X-UI installation
 - Internet access
-- Git
 
 The installer prepares the required runtime environment, including:
 
+- Git
 - Python virtual environment
 - Backend dependencies
-- Frontend dependencies
+- Node.js / frontend dependencies
 - Production frontend build
 - Systemd service
 - Nginx configuration
 
 ---
 
-# Installation
+# Quick Installation
 
-## 1. Install Git
+Because this repository is public, **no GitHub account, SSH key, Deploy Key, or access token is required**.
+
+Run the following commands on a fresh server as `root`:
 
 ```bash
 apt update
 apt install -y git
-```
 
-## 2. Clone the Repository
-
-```bash
 cd /opt
 git clone https://github.com/AMasoudKaveh/x-ui-reseller-panel.git
 cd x-ui-reseller-panel
-```
 
-Make the installer and management scripts executable:
-
-```bash
 chmod +x install.sh manage.sh
-```
-
-## 3. Run the Installer
-
-```bash
 bash install.sh
 ```
 
-The installer will guide you through the required configuration.
+The installer will guide you through the rest of the setup.
 
 ---
 
-## Installation Options
+# Installer Configuration
 
-### Public Panel Port
+## 1. Public Panel Port
 
 Choose the public port used to access the panel.
 
@@ -151,9 +142,9 @@ Example:
 8080
 ```
 
-After installation, the panel will be available on that port.
+---
 
-### X-UI URL
+## 2. X-UI URL
 
 Enter the complete URL of your X-UI panel, including its Web Base Path.
 
@@ -163,59 +154,96 @@ Example:
 https://example.com:2053/my-xui-path/
 ```
 
-### X-UI Authentication
+---
 
-The installer supports:
+## 3. X-UI Authentication
 
-#### API Token
+The installer supports two authentication methods.
 
-Enter your X-UI API Token when prompted.
+### API Token
 
-If you provide an API Token, username/password authentication is not required.
-
-#### Username / Password
-
-Leave the API Token field blank and the installer will ask for:
+When prompted:
 
 ```text
-X-UI username
-X-UI password
+X-UI API token (blank = use username/password):
 ```
 
-### TLS Verification
+Enter your X-UI API Token.
 
-If your X-UI domain uses a valid SSL/TLS certificate, enable TLS verification.
+If a token is provided, X-UI username/password authentication is not required.
 
-If your X-UI installation uses a self-signed or otherwise untrusted certificate, TLS verification may need to be disabled.
+### Username / Password
 
-### Initial Administrator Account
+If you do not use an API Token, leave the token field blank.
 
-On the first installation, the installer will ask you to create an administrator account.
-
-You will be asked for:
+The installer will then ask for:
 
 ```text
-Initial admin username
-Initial admin password
+X-UI username:
+X-UI password:
 ```
-
-Administrator passwords are stored securely as password hashes and are never displayed in plaintext.
 
 ---
 
-## X-UI Connection Test
+## 4. TLS Verification
 
-Before installation continues, the installer performs an actual connection test against X-UI.
+When prompted:
 
-If the connection test fails, the installer stops so you can correct the X-UI URL, authentication details, or TLS settings.
+```text
+Verify X-UI TLS certificate? [y/N]:
+```
+
+Use:
+
+```text
+y
+```
+
+if your X-UI address uses a valid trusted SSL/TLS certificate.
+
+Use:
+
+```text
+n
+```
+
+if the X-UI installation uses a self-signed or otherwise untrusted certificate.
+
+---
+
+## 5. Administrator Account
+
+On the first installation, the installer asks you to create the administrator account:
+
+```text
+Initial admin username:
+Initial admin password:
+Repeat admin password:
+```
+
+Administrator passwords are stored securely as hashes and cannot be displayed in plaintext.
+
+---
+
+## 6. X-UI Connection Test
+
+Before installation continues, the installer performs an actual connection test against the configured X-UI server.
+
+If the test fails, installation stops so you can correct:
+
+- X-UI URL
+- Web Base Path
+- API Token
+- Username / Password
+- TLS verification settings
 
 ---
 
 # Accessing the Panel
 
-After installation, use the public panel port you selected.
+After installation, replace `SERVER-IP` and `PANEL-PORT` with your server information.
 
-## Administrator Login
+## Admin Panel
 
 ```text
 http://SERVER-IP:PANEL-PORT/#/admin/login
@@ -227,7 +255,7 @@ Example:
 http://192.0.2.10:8080/#/admin/login
 ```
 
-## Reseller Login
+## Reseller Panel
 
 ```text
 http://SERVER-IP:PANEL-PORT/#/reseller/login
@@ -241,7 +269,7 @@ http://192.0.2.10:8080/#/reseller/login
 
 ---
 
-# Management Menu
+# Panel Management
 
 After installation, run:
 
@@ -267,7 +295,7 @@ The management menu includes:
 
 ---
 
-## Show Status and Panel Links
+## Show Status / Panel Links
 
 Run:
 
@@ -275,29 +303,29 @@ Run:
 xui-panel
 ```
 
-Then select:
+Select:
 
 ```text
 1
 ```
 
-This displays information such as:
+This displays:
 
-- Backend service status
+- Backend status
 - Nginx status
 - Public panel port
 - Admin login URL
 - Reseller login URL
-- Current X-UI URL
-- Current X-UI authentication mode
+- X-UI URL
+- X-UI authentication information
 
-Sensitive passwords and API tokens are not displayed.
+Sensitive passwords and API tokens are never displayed.
 
 ---
 
-## Restart the Panel
+## Restart Panel
 
-Open the management menu:
+Run:
 
 ```bash
 xui-panel
@@ -309,7 +337,7 @@ Select:
 2
 ```
 
-Or restart the backend manually:
+Or manually:
 
 ```bash
 systemctl restart xui-reseller-panel
@@ -317,9 +345,9 @@ systemctl restart xui-reseller-panel
 
 ---
 
-## View Backend Logs
+## Live Backend Logs
 
-Open the management menu:
+Run:
 
 ```bash
 xui-panel
@@ -331,7 +359,7 @@ Select:
 3
 ```
 
-Or use:
+Or manually:
 
 ```bash
 journalctl -u xui-reseller-panel -f
@@ -339,7 +367,7 @@ journalctl -u xui-reseller-panel -f
 
 ---
 
-## Change Administrator Credentials
+## Change Admin Username / Password
 
 Run:
 
@@ -353,12 +381,9 @@ Select:
 4
 ```
 
-You can change:
+You can update the administrator username and password.
 
-- Admin username
-- Admin password
-
-The current password cannot be displayed because it is stored as a secure hash.
+The current password cannot be displayed because it is stored as a secure password hash.
 
 ---
 
@@ -380,13 +405,13 @@ You can update:
 
 - X-UI URL
 - Authentication mode
-- API Token
-- Username / Password
+- X-UI API Token
+- X-UI username/password
 - TLS verification
 
-The new configuration is tested before replacing the existing working configuration.
+New settings are tested before replacing the currently working configuration.
 
-If the connection test fails, the previous X-UI settings are restored.
+If the connection test fails, the previous settings are restored.
 
 ---
 
@@ -404,17 +429,13 @@ Select:
 6
 ```
 
-Enter the new public port.
-
-The Nginx configuration is updated automatically.
+The panel updates the Nginx configuration automatically.
 
 ---
 
 # Backup
 
-The panel uses a local SQLite database for panel-specific management data.
-
-To create a backup:
+To create a backup of the local panel database:
 
 ```bash
 xui-panel
@@ -426,13 +447,13 @@ Select:
 7
 ```
 
-It is strongly recommended to create a backup before major updates or server changes.
+It is recommended to create backups before major updates or server changes.
 
 ---
 
 # Rebuild Frontend
 
-If frontend files have changed, run:
+Run:
 
 ```bash
 xui-panel
@@ -444,13 +465,15 @@ Select:
 8
 ```
 
-The frontend will be rebuilt and the required services restarted.
+This rebuilds the frontend and restarts the required services.
 
 ---
 
-# Updating
+# Updating from GitHub
 
-To update an installed panel from GitHub:
+Because the repository is public, installed servers can update directly from GitHub without SSH keys or Deploy Keys.
+
+Run:
 
 ```bash
 xui-panel
@@ -462,13 +485,30 @@ Select:
 9
 ```
 
-The updater retrieves the latest project version and rebuilds the frontend.
+The updater pulls the latest version from:
 
-You can check the currently installed Git revision with:
+```text
+https://github.com/AMasoudKaveh/x-ui-reseller-panel
+```
+
+and rebuilds the frontend.
+
+To check the currently installed Git revision:
 
 ```bash
 cd /opt/xui-reseller-panel
 git log --oneline -1
+```
+
+If needed, you can also update manually:
+
+```bash
+cd /opt/xui-reseller-panel
+git pull origin main
+npm ci
+npm run build
+systemctl restart xui-reseller-panel
+nginx -t && systemctl reload nginx
 ```
 
 ---
@@ -487,11 +527,13 @@ Select:
 10
 ```
 
-The uninstall process removes the reseller panel, its Systemd service, and its Nginx configuration.
+The uninstall process removes:
 
-The primary X-UI / 3X-UI installation is **not** removed.
+- X-UI Reseller Panel application
+- Systemd service
+- Related Nginx configuration
 
-The management script asks for confirmation before deleting the panel.
+The main X-UI / 3X-UI installation is **not removed**.
 
 ---
 
@@ -538,7 +580,7 @@ X-UI remains the source of truth for:
 - Client traffic
 - Client status
 
-The reseller panel stores its own management and reseller-related information separately.
+The reseller panel stores its own reseller and management data separately.
 
 ---
 
@@ -569,9 +611,9 @@ x-ui-reseller-panel/
 
 ---
 
-# Security Notes
+# Security
 
-Sensitive runtime files should never be committed to Git.
+Sensitive runtime files must never be committed to GitHub.
 
 The repository is configured to exclude files such as:
 
@@ -584,7 +626,7 @@ dist/
 __pycache__/
 ```
 
-Important recommendations:
+Recommendations:
 
 - Never publish your X-UI API Token
 - Never publish X-UI credentials
@@ -594,25 +636,25 @@ Important recommendations:
 - Keep regular backups
 - Use a valid TLS certificate whenever possible
 - Secure SSH access to your server
-- Use firewall rules appropriate for your environment
+- Use appropriate firewall rules
 
 ---
 
 # Troubleshooting
 
-## Check Backend Status
+## Backend Status
 
 ```bash
 systemctl status xui-reseller-panel
 ```
 
-## Follow Backend Logs
+## Backend Logs
 
 ```bash
 journalctl -u xui-reseller-panel -f
 ```
 
-## Check Nginx Configuration
+## Test Nginx Configuration
 
 ```bash
 nginx -t
@@ -624,7 +666,7 @@ nginx -t
 systemctl restart nginx
 ```
 
-## Check Current Version
+## Check Installed Version
 
 ```bash
 cd /opt/xui-reseller-panel
@@ -635,7 +677,7 @@ git log --oneline -1
 
 # Support & Contact
 
-If you find a bug or want to suggest a feature, opening a GitHub Issue is preferred so the discussion can help other users too.
+If you find a bug or want to suggest a feature, opening a GitHub Issue is preferred so the discussion can help other users.
 
 ### GitHub
 
