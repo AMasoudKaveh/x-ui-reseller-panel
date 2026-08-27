@@ -115,18 +115,31 @@ PUBLIC_PORT="$(prompt_port)"
 XUI_BASE_URL="$(prompt_nonempty 'Full X-UI URL (include web base path): ')"
 XUI_BASE_URL="${XUI_BASE_URL%/}"
 
-read -r -p "X-UI username: " XUI_USERNAME
-while [[ -z "$XUI_USERNAME" ]]; do
-  echo "X-UI username is required for this installer."
-  read -r -p "X-UI username: " XUI_USERNAME
-done
-read -r -s -p "X-UI password: " XUI_PASSWORD
+read -r -s -p "X-UI API token (blank = use username/password): " XUI_API_TOKEN
 echo
-while [[ -z "$XUI_PASSWORD" ]]; do
-  echo "X-UI password is required."
+
+XUI_USERNAME=""
+XUI_PASSWORD=""
+
+if [[ -n "$XUI_API_TOKEN" ]]; then
+  echo "X-UI authentication mode: API token"
+else
+  echo "X-UI authentication mode: username/password"
+
+  read -r -p "X-UI username: " XUI_USERNAME
+  while [[ -z "$XUI_USERNAME" ]]; do
+    echo "X-UI username is required when API token is not provided."
+    read -r -p "X-UI username: " XUI_USERNAME
+  done
+
   read -r -s -p "X-UI password: " XUI_PASSWORD
   echo
-done
+  while [[ -z "$XUI_PASSWORD" ]]; do
+    echo "X-UI password is required when API token is not provided."
+    read -r -s -p "X-UI password: " XUI_PASSWORD
+    echo
+  done
+fi
 
 read -r -p "Verify X-UI TLS certificate? [y/N]: " VERIFY_REPLY
 case "${VERIFY_REPLY:-N}" in
@@ -159,7 +172,7 @@ chmod 755 "$BACKEND_DIR/data"
 
 cat > "$ENV_FILE" <<EOF
 XUI_BASE_URL=$XUI_BASE_URL
-XUI_API_TOKEN=
+XUI_API_TOKEN=$XUI_API_TOKEN
 XUI_USERNAME=$XUI_USERNAME
 XUI_PASSWORD=$XUI_PASSWORD
 XUI_VERIFY_TLS=$XUI_VERIFY_TLS

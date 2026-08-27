@@ -109,11 +109,12 @@ pause() {
 }
 
 show_status() {
-  local port ip xui user
+  local port ip xui user token
   port="$(current_port)"
   ip="$(public_ip)"; ip="${ip:-SERVER-IP}"
   xui="$(get_env XUI_BASE_URL)"
   user="$(get_env XUI_USERNAME)"
+  token="$(get_env XUI_API_TOKEN)"
   echo
   echo "Panel status"
   echo "--------------------------------------------"
@@ -123,8 +124,14 @@ show_status() {
   echo "Admin:   http://$ip:$port/#/admin/login"
   echo "Reseller:http://$ip:$port/#/reseller/login"
   echo "X-UI URL: $xui"
-  echo "X-UI user: ${user:-<not set>}"
-  echo "X-UI password: <hidden>"
+  if [[ -n "$token" ]]; then
+    echo "X-UI auth: API token"
+    echo "X-UI API token: <hidden>"
+  else
+    echo "X-UI auth: username/password"
+    echo "X-UI user: ${user:-<not set>}"
+    echo "X-UI password: <hidden>"
+  fi
   echo
   if [[ -x "$VENV/bin/python" && -f "$BACKEND_DIR/data/auth.db" ]]; then
     PYTHONPATH="$APP_DIR" "$VENV/bin/python" -m backend.admin_cli show || true
@@ -161,30 +168,124 @@ change_admin() {
 }
 
 change_xui() {
-  local old_env tmp base user pass verify reply
-  old_env="$(mktemp)"; cp "$ENV_FILE" "$old_env"
+  local old_env base token user pass verify reply mode
+  local current_mode current_token current_user current_pass current_verify
+
+  old_env="$(mktemp)"
+  cp "$ENV_FILE" "$old_env"
+
+  current_token="$(get_env XUI_API_TOKEN)"
+  current_user="$(get_env XUI_USERNAME)"
+  current_pass="$(get_env XUI_PASSWORD)"
+  current_verify="$(get_env XUI_VERIFY_TLS)"
+
+  if [[ -n "$current_token" ]]; then
+    current_mode="token"
+  else
+    current_mode="password"
+  fi
+
   echo
   echo "Current X-UI URL: $(get_env XUI_BASE_URL)"
-  echo "Current X-UI username: $(get_env XUI_USERNAME)"
-  echo "Current X-UI password: <hidden>"
+  echo "Current authentication mode: $current_mode"
+
+  if [[ "$current_mode" == "token" ]]; then
+    echo "Current X-UI API token: <hidden>"
+  else
+    echo "Current X-UI username: ${current_user:-<not set>}"
+    echo "Current X-UI password: <hidden>"
+  fi
+
+  echo
   read -r -p "New full X-UI URL [keep current]: " base
   base="${base:-$(get_env XUI_BASE_URL)}"
   base="${base%/}"
-  read -r -p "New X-UI username [keep current]: " user
-  user="${user:-$(get_env XUI_USERNAME)}"
-  read -r -s -p "New X-UI password [blank = keep current]: " pass
+
   echo
-  if [[ -z "$pass" ]]; then pass="$(get_env XUI_PASSWORD)"; fi
-  read -r -p "Verify TLS certificate? [y/N]: " reply
-  case "${reply:-N}" in y|Y|yes|YES) verify=true;; *) verify=false;; esac
+  read -r -p "Authentication mode [token/password, Enter=$current_mode]: " mode
+  mode="${mode:-$current_mode}"
+
+  case "$mode" in
+    token|TOKEN|Token)
+      read -r -s -p "New X-UI API token [blank = keep current token]: " token
+      echo
+
+      if [[ -z "$token" ]]; then
+        if [[ "$current_mode" == "token" && -n "$current_token" ]]; then
+          token="$current_token"
+        else
+          echo "API token is required for token authentication."
+          rm -f "$old_env"
+          return 1
+        fi
+      fi
+
+      user=""
+      pass=""
+      ;;
+
+    password|PASSWORD|Password|user|USER|User)
+      token=""
+
+      read -r -p "New X-UI username [${current_user:-required}]: " user
+      user="${user:-$current_user}"
+
+      if [[ -z "$user" ]]; then
+        echo "X-UI username is required."
+        rm -f "$old_env"
+        return 1
+      fi
+
+      read -r -s -p "New X-UI password [blank = keep current]: " pass
+      echo
+
+      if [[ -z "$pass" ]]; then
+        pass="$current_pass"
+      fi
+
+      if [[ -z "$pass" ]]; then
+        echo "X-UI password is required."
+        rm -f "$old_env"
+        return 1
+      fi
+      ;;
+
+    *)
+      echo "Invalid authentication mode. Use token or password."
+      rm -f "$old_env"
+      return 1
+      ;;
+  esac
+
+  echo
+  read -r -p "Verify TLS certificate? [y/n, Enter=keep $current_verify]: " reply
+
+  case "$reply" in
+    "")
+      verify="${current_verify:-false}"
+      ;;
+    y|Y|yes|YES)
+      verify=true
+      ;;
+    n|N|no|NO)
+      verify=false
+      ;;
+    *)
+      echo "Invalid TLS option."
+      rm -f "$old_env"
+      return 1
+      ;;
+  esac
 
   set_env XUI_BASE_URL "$base"
-  set_env XUI_API_TOKEN ""
+  set_env XUI_API_TOKEN "$token"
   set_env XUI_USERNAME "$user"
   set_env XUI_PASSWORD "$pass"
   set_env XUI_VERIFY_TLS "$verify"
 
+  echo
   echo "Testing X-UI connection..."
+
   if PYTHONPATH="$APP_DIR" "$VENV/bin/python" -m backend.xui_probe; then
     rm -f "$old_env"
     systemctl restart "$SERVICE_NAME"
