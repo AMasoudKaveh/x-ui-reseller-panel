@@ -1,0 +1,7 @@
+fastapi>=0.116,<1.0
+uvicorn[standard]>=0.35,<1.0
+psutil>=6.0,<8.0
+
+requests>=2.32,<3.0
+
+qrcode>=7.4,<9.0

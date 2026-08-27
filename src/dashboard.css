@@ -1,0 +1,527 @@
+/* =========================================================
+   Dashboard v6 — integrated with Users + Settings theme
+   ========================================================= */
+
+:root {
+  --ring-track: var(--border-soft);
+}
+
+.dashboard-content {
+  min-height: calc(100vh - 116px);
+  padding: 17px;
+}
+
+.dashboard-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 25px;
+}
+
+.dashboard-panel,
+.dashboard-metric-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+}
+
+.dashboard-metric-card {
+  min-height: 147px;
+  padding: 25px 26px 22px;
+}
+
+.dashboard-metric-wide {
+  grid-column: 1 / -1;
+  min-height: 139px;
+}
+
+.dashboard-metric-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dashboard-metric-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.dashboard-metric-title {
+  color: var(--text-2);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dashboard-ring {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.dashboard-ring-inner {
+  width: 33px;
+  height: 33px;
+  border-radius: 50%;
+  background: var(--surface);
+}
+
+.dashboard-metric-body-row {
+  margin-top: 20px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.dashboard-metric-value {
+  color: var(--text);
+  font-size: 31px;
+  font-weight: 700;
+  letter-spacing: -0.7px;
+}
+
+.dashboard-metric-tag {
+  padding: 5px 9px;
+  border-radius: 5px;
+  background: var(--surface-subtle);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dashboard-metric-footer {
+  margin-top: 17px;
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dashboard-traffic-tags {
+  display: flex;
+  gap: 11px;
+}
+
+.dashboard-traffic-down {
+  color: #16b96f;
+}
+
+.dashboard-traffic-up {
+  color: var(--accent);
+}
+
+.dashboard-users-summary {
+  margin-top: 25px;
+  padding: 27px;
+}
+
+.dashboard-users-summary-title {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin-bottom: 13px;
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.dashboard-users-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.dashboard-summary-box {
+  height: 102px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 19px 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-2);
+}
+
+.dashboard-summary-box strong {
+  color: var(--text);
+  font-size: 28px;
+}
+
+.dashboard-summary-value-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dashboard-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+}
+
+.dashboard-green-dot {
+  background: #18b75b;
+}
+
+.dashboard-lower-grid {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.95fr) minmax(520px, 1.15fr);
+  gap: 28px;
+  margin-top: 80px;
+  padding: 0 40px;
+}
+
+.dashboard-status-panel,
+.dashboard-usage-panel {
+  padding: 30px;
+}
+
+.dashboard-panel-heading h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.dashboard-panel-heading p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.dashboard-status-list {
+  margin-top: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dashboard-status-row {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 0 19px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+}
+
+.dashboard-status-icon {
+  width: 30px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.dashboard-status-icon.accent {
+  color: var(--accent);
+}
+
+.dashboard-status-icon.green {
+  color: #18b75b;
+}
+
+.dashboard-status-icon.orange {
+  color: #ff6a1a;
+}
+
+.dashboard-status-icon.red {
+  color: #ef4444;
+}
+
+.dashboard-status-icon.purple {
+  color: #a855f7;
+}
+
+.dashboard-status-icon.slate {
+  color: #64748b;
+}
+
+.dashboard-status-label {
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.dashboard-status-spacer {
+  flex: 1;
+}
+
+.dashboard-status-value {
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.dashboard-usage-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.dashboard-usage-filters {
+  display: flex;
+  gap: 10px;
+}
+
+.dashboard-select-like {
+  min-width: 136px;
+  height: 40px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--control-bg);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.dashboard-select-like:hover {
+  background: var(--surface-hover);
+}
+
+.dashboard-chart {
+  height: 350px;
+  margin-top: 38px;
+  display: grid;
+  grid-template-columns: 42px 1fr;
+}
+
+.dashboard-chart-ylabels {
+  height: 290px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding-right: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.dashboard-chart-grid {
+  position: relative;
+  height: 290px;
+  border-left: 1px solid var(--border-soft);
+}
+
+.dashboard-grid-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px dashed var(--border-soft);
+}
+
+.dashboard-grid-line:nth-child(1) { top: 0; }
+.dashboard-grid-line:nth-child(2) { top: 25%; }
+.dashboard-grid-line:nth-child(3) { top: 50%; }
+.dashboard-grid-line:nth-child(4) { top: 75%; }
+.dashboard-grid-line:nth-child(5) { top: 100%; }
+
+.dashboard-bars {
+  position: absolute;
+  inset: 0 0 -30px 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-around;
+  padding: 0 30px;
+}
+
+.dashboard-bar-wrap {
+  width: 11%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+}
+
+.dashboard-bar {
+  width: 38px;
+  max-width: 70%;
+  min-height: 2px;
+  border-radius: 7px 7px 5px 5px;
+  background: color-mix(in srgb, var(--accent) 48%, var(--muted));
+  opacity: 0.5;
+  transition:
+    height 220ms ease,
+    opacity 160ms ease,
+    background 160ms ease;
+}
+
+.dashboard-bar:hover {
+  opacity: 0.85;
+}
+
+.dashboard-bar.active {
+  background: var(--accent);
+  opacity: 0.95;
+}
+
+.dashboard-bar-label {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.dashboard-usage-footer {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.dashboard-usage-footer strong {
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.dashboard-footer {
+  margin-top: 26px;
+  padding: 18px 0 12px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  color: var(--muted-2);
+  font-size: 12px;
+}
+
+@media (max-width: 1180px) {
+  .dashboard-lower-grid {
+    grid-template-columns: 1fr;
+    padding: 0;
+    margin-top: 35px;
+  }
+}
+
+@media (max-width: 900px) {
+  .dashboard-metric-grid,
+  .dashboard-users-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-metric-wide {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .dashboard-content {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .dashboard-status-panel,
+  .dashboard-usage-panel {
+    padding: 18px;
+  }
+
+  .dashboard-usage-header {
+    flex-direction: column;
+  }
+
+  .dashboard-usage-filters {
+    width: 100%;
+  }
+
+  .dashboard-select-like {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .dashboard-chart {
+    overflow-x: auto;
+  }
+}
+
+/* v6.1 — Dashboard icon containers: closer to original 3x-ui styling */
+
+/* Top dashboard metric icons (CPU / RAM / Disk / Traffic / Uptime)
+   and the Users section heading icon */
+.dashboard-metric-title-wrap .metric-icon,
+.dashboard-users-summary-title .metric-icon {
+  width: 38px !important;
+  height: 38px !important;
+  border: 0 !important;
+  border-radius: 7px !important;
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--accent) 12%, transparent),
+      color-mix(in srgb, var(--accent) 7%, transparent)
+    ) !important;
+  color: var(--accent) !important;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 5%, transparent) !important;
+}
+
+/* Slightly smaller glyphs so they don't feel boxed in */
+.dashboard-metric-title-wrap .metric-icon svg,
+.dashboard-users-summary-title .metric-icon svg {
+  width: 20px !important;
+  height: 20px !important;
+  stroke-width: 1.65 !important;
+}
+
+/* Light mode: keep the icon background very subtle */
+:root[data-ui-mode="light"] .dashboard-metric-title-wrap .metric-icon,
+:root[data-ui-mode="light"] .dashboard-users-summary-title .metric-icon {
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--accent) 9%, white),
+      color-mix(in srgb, var(--accent) 4%, white)
+    ) !important;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 9%, transparent) !important;
+}
+
+/* Lower Users monitor rows should stay clean: no square container */
+.dashboard-status-icon {
+  width: 30px !important;
+  height: 30px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+
+/* v6.2 — Optical centering for dashboard icons */
+
+/* Force the icon wrapper to center its SVG exactly */
+.dashboard-metric-title-wrap .metric-icon,
+.dashboard-users-summary-title .metric-icon {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  line-height: 0 !important;
+  text-align: center !important;
+}
+
+/* Prevent inline-SVG baseline offset and keep equal dimensions */
+.dashboard-metric-title-wrap .metric-icon svg,
+.dashboard-users-summary-title .metric-icon svg {
+  display: block !important;
+  flex: 0 0 auto !important;
+  width: 20px !important;
+  height: 20px !important;
+  margin: 0 !important;
+  transform: translate(0, 0) !important;
+}
+
+/* Uptime / radio icon is visually a little top-heavy in Lucide.
+   Tiny optical correction keeps it centered like the other icons. */
+.dashboard-metric-title-wrap .metric-icon svg.lucide-radio {
+  transform: translateY(0.5px) !important;
+}
+
+/* Users icon is also slightly wider visually; center it optically. */
+.dashboard-users-summary-title .metric-icon svg {
+  transform: translateY(0.25px) !important;
+}

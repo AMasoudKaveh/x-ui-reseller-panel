@@ -1,0 +1,217 @@
+/* =========================================================
+   Admin UI v8 — matched to the approved reseller design
+   ========================================================= */
+.admin-login-badge{width:max-content;margin:0 auto 14px;display:flex;align-items:center;gap:7px;padding:5px 9px;border:1px solid var(--accent-border);border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:600}
+.ad-page,.rp-page{padding:17px;min-height:calc(100vh - 116px);color:var(--text)}
+.ad-stats-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:16px}.ad-stat-card{min-height:132px;padding:19px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}.ad-stat-title{display:flex;align-items:center;gap:11px;color:var(--text-2);font-size:13px;font-weight:600}.ad-icon-box{width:38px;height:38px;display:flex;align-items:center;justify-content:center;border-radius:7px;background:linear-gradient(145deg,color-mix(in srgb,var(--accent) 12%,transparent),color-mix(in srgb,var(--accent) 7%,transparent));color:var(--accent)}.ad-stat-card>strong{display:block;margin-top:17px;font-size:26px;letter-spacing:-.4px}.ad-stat-card>small{display:block;margin-top:6px;color:var(--muted);font-size:10px}.ad-traffic-panel,.ad-panel{border:1px solid var(--border);border-radius:8px;background:var(--surface)}.ad-traffic-panel{margin-top:22px;padding:22px}.ad-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:15px}.ad-panel-head h2{margin:0;font-size:17px}.ad-panel-head p{margin:6px 0 0;color:var(--muted);font-size:11px}.ad-panel-head>strong{font-size:14px}.ad-panel-head button{border:0;background:transparent;color:var(--accent);cursor:pointer}.ad-master-progress{height:8px;margin-top:20px;overflow:hidden;border-radius:999px;background:var(--border-soft)}.ad-master-progress i,.ad-line-progress i{display:block;height:100%;border-radius:inherit;background:var(--accent)}.ad-master-meta{display:flex;justify-content:space-between;gap:10px;margin-top:8px;color:var(--muted);font-size:10px}.ad-dashboard-lower{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:22px}.ad-panel{padding:22px}.ad-list{margin-top:15px}.ad-list-row{min-height:64px;display:flex;align-items:center;gap:12px;border-top:1px solid var(--border)}.ad-list-row:first-child{border-top:0}.ad-list-main{min-width:0;flex:1}.ad-list-main strong{display:block;font-size:12px}.ad-list-main span{display:block;margin-top:4px;color:var(--muted);font-size:10px}.ad-list-usage{width:190px}.ad-line-progress{height:5px;overflow:hidden;border-radius:99px;background:var(--border-soft)}.ad-list-usage>span{display:block;margin-top:5px;color:var(--muted);font-size:9px}.ad-status{min-height:22px;display:inline-flex;align-items:center;padding:0 8px;border-radius:999px;font-size:10px;font-weight:600}.ad-status.active{background:#075f3a;color:#b8f1d4}.ad-status.suspended{background:#6c2028;color:#ffd8dd}.ad-health-dot{width:9px;height:9px;border-radius:50%;background:#18b75b}.ad-right-stat{text-align:right}.ad-right-stat strong{display:block}.ad-right-stat span{color:var(--muted);font-size:9px}.ad-chart-panel{margin-top:22px}.ad-range{min-width:90px;height:36px;display:grid;place-items:center;border:1px solid var(--border);border-radius:7px;color:var(--text-2);font-size:11px}.ad-chart-bars{height:240px;margin-top:20px;display:flex;align-items:flex-end;justify-content:space-around;gap:18px;padding:10px 20px 0;border-bottom:1px solid var(--border-soft);background:repeating-linear-gradient(to bottom,transparent 0,transparent 24%,color-mix(in srgb,var(--border-soft) 65%,transparent) 25%)}.ad-chart-bars>div{height:100%;width:11%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:8px}.ad-chart-bars i{width:36px;max-width:80%;border-radius:6px 6px 0 0;background:color-mix(in srgb,var(--accent) 45%,var(--muted));opacity:.65}.ad-chart-bars i.current{background:var(--accent);opacity:1}.ad-chart-bars span{color:var(--muted);font-size:9px}
+
+.rp-table-card,.ac-table-card,.ib-table-card{margin-top:16px;border:1px solid var(--border);border-radius:8px;background:var(--surface);overflow:visible}.rp-table-head,.rp-row{display:grid;grid-template-columns:minmax(220px,1.25fr) 130px minmax(260px,1.2fr) 120px 145px 115px;align-items:center;gap:12px;padding:0 12px}.rp-table-head{min-height:45px;border-bottom:1px solid var(--border);color:var(--muted);font-size:11px}.rp-row{min-height:70px;border-bottom:1px solid var(--border);font-size:11px}.rp-row:last-child{border-bottom:0}.rp-name{display:flex;align-items:center;gap:9px}.rp-name>div strong{display:block;font-size:13px}.rp-name>div span{display:block;margin-top:4px;color:var(--muted);font-size:9px}.rp-presence{width:9px;height:9px;border-radius:50%;background:#64748b}.rp-presence.active{background:#18b75b}.rp-status-pill{display:inline-flex;align-items:center;gap:5px;min-height:24px;padding:0 8px;border-radius:999px;font-size:10px;font-weight:600}.rp-status-pill.active{background:#075f3a;color:#b8f1d4}.rp-status-pill.suspended{background:#6c2028;color:#ffd8dd}.rp-usage{padding-right:12px}.rp-users strong,.rp-inbounds strong{display:block;font-size:13px}.rp-users span,.rp-inbounds span{display:block;margin-top:3px;color:var(--muted);font-size:9px}.rp-inbounds{display:grid;grid-template-columns:auto 1fr;gap:2px 6px;align-items:center}.rp-inbounds span{grid-column:2}.rp-sort{left:-185px}.rp-sort-option{width:100%;min-height:34px;display:flex;align-items:center;gap:8px;padding:0 9px;border:0;border-radius:5px;background:transparent;color:var(--text-2);cursor:pointer;text-align:left}.rp-sort-option:hover,.rp-sort-option.active{background:var(--surface-hover);color:var(--text)}.rp-more-menu{width:205px}.rp-modal{width:min(1080px,96vw)}.rp-usage-preview{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.rp-usage-preview>div{padding:12px;border:1px solid var(--border);border-radius:6px;background:var(--surface-subtle)}.rp-usage-preview span{display:block;color:var(--muted);font-size:9px}.rp-usage-preview strong{display:block;margin-top:5px;font-size:13px}.rp-detail-modal{width:min(820px,96vw);max-height:90vh;overflow:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface-raised);box-shadow:0 30px 100px var(--shadow)}.rp-detail-body{padding:22px}.rp-detail-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:24px}.rp-detail-stats>div{min-height:90px;display:flex;flex-direction:column;justify-content:center;padding:13px;border:1px solid var(--border);border-radius:7px;background:var(--surface)}.rp-detail-stats svg{color:var(--accent)}.rp-detail-stats span{margin-top:7px;color:var(--muted);font-size:9px}.rp-detail-stats strong{margin-top:4px}.rp-detail-body section+section{margin-top:22px}.rp-detail-body h3{margin:0 0 10px;font-size:13px}.rp-detail-head{display:flex;align-items:center;justify-content:space-between}.rp-tag-list{display:flex;flex-wrap:wrap;gap:7px}.rp-tag-list span{padding:6px 9px;border:1px solid var(--border);border-radius:5px;background:var(--surface-subtle);font-size:10px}
+
+.ac-table-head,.ac-row{display:grid;grid-template-columns:minmax(200px,1.05fr) 135px minmax(220px,1.15fr) 150px minmax(260px,1.25fr) 155px;align-items:center;gap:11px;padding:0 12px}.ac-table-head{min-height:45px;border-bottom:1px solid var(--border);color:var(--muted);font-size:11px}.ac-row{min-height:70px;border-bottom:1px solid var(--border);font-size:11px}.ac-row:last-child{border-bottom:0}.ac-owner-chip{padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surface-subtle);font-size:9px}.ac-disabled-pill{display:inline-flex;align-items:center;gap:5px;min-height:24px;padding:0 8px;border-radius:999px;background:#353941;color:#d7dbe2;font-size:10px}.ac-inbound{color:var(--text-2)}.ac-sort{left:-185px}
+
+.ib-table-card{overflow-x:auto}.ib-table-head,.ib-row{min-width:1080px;display:grid;grid-template-columns:105px minmax(180px,1.1fr) 120px 75px minmax(200px,1.25fr) 140px 110px 110px;align-items:center;gap:10px;padding:0 12px}.ib-table-head{min-height:45px;border-bottom:1px solid var(--border);color:var(--muted);font-size:10px}.ib-row{min-height:67px;border-bottom:1px solid var(--border);font-size:11px}.ib-row:last-child{border-bottom:0}.ib-online-pill{display:inline-flex;align-items:center;gap:6px;color:#b8f1d4;font-size:10px}.ib-online-pill span{width:8px;height:8px;border-radius:50%;background:#18b75b}.ib-name strong{display:block}.ib-name span{display:block;margin-top:3px;color:var(--muted);font-size:9px}.ib-protocol{display:inline-flex;padding:5px 7px;border:1px solid var(--border);border-radius:5px;background:var(--surface-subtle);font-size:9px}.ib-users strong{display:block}.ib-users span{display:block;margin-top:3px;color:var(--muted);font-size:9px}.ib-note{margin-top:14px;padding:12px 14px;border:1px solid var(--border);border-radius:7px;background:var(--surface-subtle);color:var(--muted);font-size:10px}
+
+@media(max-width:1320px){.ad-stats-grid{grid-template-columns:repeat(3,1fr)}.rp-table-card,.ac-table-card{overflow-x:auto}.rp-table-head,.rp-row{min-width:1050px}.ac-table-head,.ac-row{min-width:1100px}}
+@media(max-width:980px){.ad-dashboard-lower{grid-template-columns:1fr}.ad-stats-grid{grid-template-columns:1fr 1fr}.rp-usage-preview,.rp-detail-stats{grid-template-columns:1fr}}
+@media(max-width:680px){.ad-page,.rp-page{padding:12px}.ad-stats-grid{grid-template-columns:1fr}.ad-panel-head{flex-direction:column}.ad-master-meta{flex-direction:column}.rp-modal{width:100vw;max-height:100vh;border-radius:0}}
+
+/* =========================================================
+   ADMIN REPRESENTATIVE MODAL VIEWPORT FIX
+   Position-only fix. Existing modal design is unchanged.
+   ========================================================= */
+
+.admin-rep-backdrop {
+  position: fixed !important;
+
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  left: 277px !important;
+
+  width: auto !important;
+  height: 100dvh !important;
+  min-height: 0 !important;
+
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+
+  padding: 24px !important;
+
+  box-sizing: border-box !important;
+
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+
+  overscroll-behavior: contain;
+
+  z-index: 100000 !important;
+}
+
+.admin-rep-backdrop .rp-modal,
+.admin-rep-backdrop .rp-detail-modal {
+  margin: auto !important;
+
+  max-height: calc(100dvh - 48px) !important;
+
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}
+
+
+/* existing collapsed sidebar width */
+@media (max-width: 950px) and (min-width: 681px) {
+
+  .admin-rep-backdrop {
+    left: 82px !important;
+  }
+
+}
+
+
+/* existing mobile sidebar behavior */
+@media (max-width: 680px) {
+
+  .admin-rep-backdrop {
+    left: 0 !important;
+    padding: 8px !important;
+  }
+
+  .admin-rep-backdrop .rp-modal,
+  .admin-rep-backdrop .rp-detail-modal {
+    max-height: calc(100dvh - 16px) !important;
+  }
+
+}
+
+
+/* =========================================================
+   ADMIN CLIENT ACTION MENU LAYER FIX
+   Fixes underlying row/actions showing through More menu.
+   ========================================================= */
+
+.ac-table-card {
+  overflow: visible !important;
+}
+
+.ac-row {
+  position: relative !important;
+  overflow: visible !important;
+  z-index: 1;
+}
+
+.ac-row:hover {
+  z-index: 2;
+}
+
+.ac-row .up-actions {
+  position: relative !important;
+  overflow: visible !important;
+}
+
+.ac-row .ua-action-wrap {
+  position: relative !important;
+  overflow: visible !important;
+}
+
+/*
+ * More action menu
+ */
+.ac-row .ua-more-menu,
+.ac-table-card .ua-more-menu {
+  position: absolute !important;
+
+  z-index: 50000 !important;
+
+  background: var(--surface-raised, #191b1f) !important;
+  background-color: var(--surface-raised, #191b1f) !important;
+
+  opacity: 1 !important;
+
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+
+  isolation: isolate !important;
+
+  overflow: hidden !important;
+
+  box-shadow:
+    0 18px 50px rgba(0, 0, 0, 0.55),
+    0 0 0 1px var(--border) !important;
+}
+
+
+/*
+ * Add an opaque layer below menu contents.
+ * Prevents action icons from rows underneath
+ * appearing through the menu.
+ */
+.ac-row .ua-more-menu::before,
+.ac-table-card .ua-more-menu::before {
+  content: "" !important;
+
+  position: absolute !important;
+  inset: 0 !important;
+
+  background: var(--surface-raised, #191b1f) !important;
+
+  z-index: -1 !important;
+
+  pointer-events: none !important;
+}
+
+
+/*
+ * Menu buttons must also stay opaque.
+ */
+.ac-row .ua-more-menu > button,
+.ac-table-card .ua-more-menu > button {
+  position: relative !important;
+
+  z-index: 2 !important;
+
+  background-color: var(--surface-raised, #191b1f) !important;
+
+  opacity: 1 !important;
+
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+
+.ac-row .ua-more-menu > button:hover,
+.ac-table-card .ua-more-menu > button:hover {
+  background-color: var(--surface-hover, #22262d) !important;
+}
+
+
+/*
+ * Keep separators above opaque background.
+ */
+.ac-row .ua-menu-divider,
+.ac-table-card .ua-menu-divider {
+  position: relative !important;
+  z-index: 2 !important;
+}
+
+
+/*
+ * When an action menu exists inside a row,
+ * lift that whole row above following rows.
+ */
+.ac-row:has(.ua-more-menu) {
+  z-index: 40000 !important;
+}
+
+
+/* Representative create/modify validation feedback */
+.rp-form-error{
+  margin-top:10px;
+  padding:10px 12px;
+  border:1px solid color-mix(in srgb,#ef4444 45%,var(--border));
+  border-radius:7px;
+  background:color-mix(in srgb,#ef4444 9%,var(--surface));
+  color:#ef7676;
+  font-size:11px;
+  line-height:1.5;
+}

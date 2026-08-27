@@ -1,0 +1,525 @@
+/* =========================================================
+   Global x-ui reseller theme engine
+   Loaded AFTER styles.css / users.css / settings.css.
+   ========================================================= */
+
+:root {
+  --accent: #4d82cf;
+  --accent-hover: #5b8bd3;
+  --accent-border: #5e8bd0;
+  --accent-dim: #3d699c;
+  --accent-soft: rgba(77,130,207,.16);
+  --accent-selected-bg: rgba(77,130,207,.10);
+  --accent-contrast: #101820;
+
+  --green: #18b75b;
+  --green-soft: #075f3a;
+  --green-text: #b8f1d4;
+}
+
+/* Accent palettes */
+:root[data-accent="default"] {
+  --accent: #4d82cf;
+  --accent-hover: #5b8bd3;
+  --accent-border: #5e8bd0;
+  --accent-dim: #3d699c;
+  --accent-soft: rgba(77,130,207,.16);
+  --accent-selected-bg: rgba(77,130,207,.10);
+  --accent-contrast: #101820;
+}
+
+:root[data-accent="red"] {
+  --accent: #ef4444;
+  --accent-hover: #f05252;
+  --accent-border: #f06464;
+  --accent-dim: #b93737;
+  --accent-soft: rgba(239,68,68,.16);
+  --accent-selected-bg: rgba(239,68,68,.09);
+  --accent-contrast: #160b0b;
+}
+
+:root[data-accent="rose"] {
+  --accent: #f43f5e;
+  --accent-hover: #fb5872;
+  --accent-border: #fb6c82;
+  --accent-dim: #bd3048;
+  --accent-soft: rgba(244,63,94,.16);
+  --accent-selected-bg: rgba(244,63,94,.09);
+  --accent-contrast: #180a0e;
+}
+
+:root[data-accent="orange"] {
+  --accent: #f97316;
+  --accent-hover: #fb8534;
+  --accent-border: #fc9858;
+  --accent-dim: #bf5911;
+  --accent-soft: rgba(249,115,22,.16);
+  --accent-selected-bg: rgba(249,115,22,.09);
+  --accent-contrast: #191006;
+}
+
+:root[data-accent="green"] {
+  --accent: #22c55e;
+  --accent-hover: #39d071;
+  --accent-border: #55d887;
+  --accent-dim: #1b9448;
+  --accent-soft: rgba(34,197,94,.16);
+  --accent-selected-bg: rgba(34,197,94,.09);
+  --accent-contrast: #07130b;
+}
+
+:root[data-accent="blue"] {
+  --accent: #3b82f6;
+  --accent-hover: #5592f7;
+  --accent-border: #70a4f8;
+  --accent-dim: #2d64be;
+  --accent-soft: rgba(59,130,246,.16);
+  --accent-selected-bg: rgba(59,130,246,.09);
+  --accent-contrast: #08111f;
+}
+
+:root[data-accent="yellow"] {
+  --accent: #eab308;
+  --accent-hover: #f1c328;
+  --accent-border: #f5cf50;
+  --accent-dim: #ac8506;
+  --accent-soft: rgba(234,179,8,.16);
+  --accent-selected-bg: rgba(234,179,8,.10);
+  --accent-contrast: #181404;
+}
+
+:root[data-accent="violet"] {
+  --accent: #8b5cf6;
+  --accent-hover: #9d75f7;
+  --accent-border: #ad8bf8;
+  --accent-dim: #6845ba;
+  --accent-soft: rgba(139,92,246,.16);
+  --accent-selected-bg: rgba(139,92,246,.10);
+  --accent-contrast: #100b1c;
+}
+
+/* DARK */
+:root[data-ui-mode="dark"] {
+  --bg: #18181a;
+  --sidebar: #1a1a1c;
+  --surface: #1d1d1f;
+  --surface-hover: #232427;
+  --surface-raised: #202023;
+  --surface-subtle: #1b1b1d;
+  --input-bg: #29292c;
+  --control-bg: #1c1c1e;
+  --border: #2e2f33;
+  --border-soft: #292a2d;
+  --border-strong: #393b40;
+  --text: #f5f5f6;
+  --text-2: #c6c8cc;
+  --muted: #96999f;
+  --muted-2: #74777d;
+  --shadow: rgba(0,0,0,.42);
+}
+
+/* LIGHT */
+:root[data-ui-mode="light"] {
+  --bg: #f5f5f7;
+  --sidebar: #f1f1f3;
+  --surface: #ffffff;
+  --surface-hover: #f7f7f9;
+  --surface-raised: #ffffff;
+  --surface-subtle: #fafafa;
+  --input-bg: #ededf0;
+  --control-bg: #ffffff;
+  --border: #d6d7db;
+  --border-soft: #e4e5e8;
+  --border-strong: #c8cad0;
+  --text: #1d1d20;
+  --text-2: #45474c;
+  --muted: #6d7077;
+  --muted-2: #8a8d94;
+  --shadow: rgba(23,24,28,.13);
+}
+
+/* Global shell */
+html,
+body,
+#root {
+  background: var(--bg) !important;
+  color: var(--text) !important;
+}
+
+body,
+.app-shell,
+.content-shell {
+  background: var(--bg) !important;
+  color: var(--text) !important;
+}
+
+.sidebar {
+  background: var(--sidebar) !important;
+  border-color: var(--border) !important;
+}
+
+.page-header {
+  background: var(--bg) !important;
+  border-color: var(--border) !important;
+}
+
+.page-header h1,
+.brand-name,
+.account-name {
+  color: var(--text) !important;
+}
+
+.page-header p,
+.brand-version,
+.account-usage,
+.nav-section-label,
+.account-expand {
+  color: var(--muted) !important;
+}
+
+.help-chip {
+  color: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+
+.brand-mark {
+  border-color: var(--border-strong) !important;
+  background: var(--surface-raised) !important;
+  color: var(--text) !important;
+}
+
+.nav-item {
+  color: var(--text-2) !important;
+}
+
+.nav-item:hover {
+  background: var(--surface-hover) !important;
+  color: var(--text) !important;
+}
+
+.nav-item.active {
+  background: var(--accent-soft) !important;
+  color: var(--text) !important;
+}
+
+.nav-item.active svg {
+  color: var(--accent) !important;
+}
+
+.support-row {
+  color: var(--text-2) !important;
+}
+
+.mini-button {
+  background: var(--control-bg) !important;
+  border-color: var(--border) !important;
+  color: var(--muted) !important;
+}
+
+.quota-track {
+  background: var(--border-soft) !important;
+}
+
+.quota-fill {
+  background: var(--accent) !important;
+}
+
+/* Dashboard + shared cards */
+.metric-card,
+.panel,
+.users-summary,
+.placeholder-card,
+.users-stat-card,
+.up-stat-card {
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+.metric-icon {
+  background: var(--accent-soft) !important;
+  color: var(--accent) !important;
+}
+
+.status-badge {
+  background: var(--accent) !important;
+  color: var(--accent-contrast) !important;
+}
+
+/* Users page accents */
+.up-create-button,
+.primary-button {
+  background: var(--accent) !important;
+  border-color: var(--accent-border) !important;
+  color: var(--accent-contrast) !important;
+}
+
+.up-create-button:hover,
+.primary-button:hover {
+  background: var(--accent-hover) !important;
+}
+
+.up-search-box,
+.search-box {
+  background: var(--input-bg) !important;
+  border-color: var(--border) !important;
+  color: var(--muted) !important;
+}
+
+.up-search-box input,
+.search-box input {
+  color: var(--text) !important;
+}
+
+.up-tool-button,
+.tool-button,
+.up-items-per-page button,
+.up-current-page,
+.page-size-button,
+.current-page {
+  background: var(--control-bg) !important;
+  border-color: var(--border) !important;
+  color: var(--text-2) !important;
+}
+
+.up-tool-button:hover,
+.up-tool-button.active,
+.tool-button:hover {
+  background: var(--surface-hover) !important;
+}
+
+.up-table-card,
+.users-table-card {
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+}
+
+.up-table-head,
+.users-table-head {
+  border-color: var(--border) !important;
+  color: var(--muted) !important;
+}
+
+.up-check span,
+.check-wrap span {
+  background: var(--control-bg) !important;
+  border-color: var(--border-strong) !important;
+}
+
+.up-check input:checked + span,
+.check-wrap input:checked + span {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+
+.up-usage-progress,
+.usage-progress {
+  background: var(--border-soft) !important;
+}
+
+.up-usage-fill,
+.usage-progress-fill {
+  background: var(--accent-dim) !important;
+}
+
+.up-sort-menu,
+.ua-copy-menu,
+.ua-more-menu {
+  background: var(--surface-raised) !important;
+  border-color: var(--border) !important;
+  box-shadow: 0 18px 50px var(--shadow) !important;
+}
+
+.up-sort-option-main,
+.ua-copy-menu button,
+.ua-more-menu button {
+  color: var(--text) !important;
+}
+
+.up-sort-option:hover,
+.up-sort-option.active,
+.ua-copy-menu button:hover,
+.ua-more-menu button:hover {
+  background: var(--surface-hover) !important;
+}
+
+.ua-action-toast,
+.ua-global-toast {
+  background: var(--accent) !important;
+  color: var(--accent-contrast) !important;
+  border-color: var(--accent-border) !important;
+}
+
+.ua-action-toast::after {
+  background: var(--accent) !important;
+}
+
+/* Create / modify modal */
+.cu-backdrop,
+.sq-backdrop {
+  background: color-mix(in srgb, var(--bg) 72%, transparent) !important;
+}
+
+.cu-modal,
+.mu-modal,
+.sq-modal {
+  background: var(--surface-raised) !important;
+  border-color: var(--border) !important;
+  box-shadow: 0 30px 100px var(--shadow) !important;
+  color: var(--text) !important;
+}
+
+.cu-header,
+.cu-footer,
+.sq-header {
+  background: var(--surface-raised) !important;
+  border-color: var(--border) !important;
+}
+
+.cu-field > span,
+.cu-title-wrap h2,
+.sq-title h2,
+.sq-config-heading h3 {
+  color: var(--text) !important;
+}
+
+.cu-title-wrap p,
+.cu-field small,
+.cu-inbounds-footnote,
+.sq-qr-caption {
+  color: var(--muted) !important;
+}
+
+.cu-field input,
+.cu-field textarea,
+.cu-select,
+.cu-advanced-toggle,
+.cu-advanced-panel,
+.cu-inbound-search,
+.cu-select-all,
+.cu-inbound-item,
+.cu-secondary,
+.sq-config-item,
+.sq-pager button,
+.sq-close {
+  background: var(--control-bg) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+.cu-field input::placeholder,
+.cu-field textarea::placeholder,
+.cu-inbound-search input::placeholder {
+  color: var(--muted-2) !important;
+}
+
+.cu-field input:focus,
+.cu-field textarea:focus {
+  border-color: var(--accent-border) !important;
+  box-shadow: 0 0 0 2px var(--accent-soft) !important;
+}
+
+.cu-input-action button {
+  border-color: var(--border) !important;
+  color: var(--muted) !important;
+}
+
+.cu-switch.active {
+  background: var(--accent) !important;
+}
+
+.cu-check,
+.cu-check.checked {
+  border-color: var(--accent) !important;
+}
+
+.cu-check.checked {
+  background: var(--accent) !important;
+  color: var(--accent-contrast) !important;
+}
+
+.cu-inbound-item:hover {
+  background: var(--surface-hover) !important;
+  border-color: var(--border-strong) !important;
+}
+
+.cu-inbound-item.selected {
+  background: var(--accent-selected-bg) !important;
+  border-color: var(--accent-border) !important;
+}
+
+.cu-primary {
+  background: var(--accent) !important;
+  border-color: var(--accent-border) !important;
+  color: var(--accent-contrast) !important;
+}
+
+.cu-primary:hover {
+  background: var(--accent-hover) !important;
+}
+
+.sq-config-copy span {
+  background: var(--accent-dim) !important;
+  color: var(--accent-contrast) !important;
+}
+
+.sq-copy-all,
+.sq-config-actions button {
+  color: var(--text-2) !important;
+}
+
+/* Light mode: semantic text/surfaces that were hardcoded for dark UI */
+:root[data-ui-mode="light"] .metric-title,
+:root[data-ui-mode="light"] .users-summary-title,
+:root[data-ui-mode="light"] .summary-box,
+:root[data-ui-mode="light"] .up-stat-left,
+:root[data-ui-mode="light"] .users-stat-left,
+:root[data-ui-mode="light"] .up-username-line strong,
+:root[data-ui-mode="light"] .username-line strong,
+:root[data-ui-mode="light"] .status-label,
+:root[data-ui-mode="light"] .status-value,
+:root[data-ui-mode="light"] .up-user-row,
+:root[data-ui-mode="light"] .user-row {
+  color: var(--text) !important;
+}
+
+:root[data-ui-mode="light"] .summary-box,
+:root[data-ui-mode="light"] .status-row {
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+}
+
+:root[data-ui-mode="light"] .metric-tag {
+  background: var(--surface-subtle) !important;
+  color: var(--muted) !important;
+}
+
+:root[data-ui-mode="light"] .ring-inner {
+  background: var(--surface) !important;
+}
+
+:root[data-ui-mode="light"] .up-active-pill,
+:root[data-ui-mode="light"] .active-pill {
+  background: #d9f6e7 !important;
+  color: #14633a !important;
+}
+
+:root[data-ui-mode="light"] .up-actions button,
+:root[data-ui-mode="light"] .row-icon-button {
+  color: var(--text-2) !important;
+}
+
+:root[data-ui-mode="light"] .up-actions button:hover,
+:root[data-ui-mode="light"] .row-icon-button:hover {
+  background: var(--surface-hover) !important;
+  color: var(--text) !important;
+}
+
+:root[data-ui-mode="light"] .cu-switch span {
+  background: #ffffff !important;
+}
+
+:root[data-ui-mode="light"] input[type="date"],
+:root[data-ui-mode="light"] input[type="datetime-local"] {
+  color-scheme: light !important;
+}

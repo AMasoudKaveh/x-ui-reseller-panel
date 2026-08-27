@@ -1,0 +1,31 @@
+# Secrets / local runtime
+backend/.env
+backend/.venv/
+backend/data/*
+!backend/data/.gitkeep
+
+# Frontend dependencies / build
+node_modules/
+dist/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Local backups / temp
+*.bak
+*.old
+*.tmp
+*.backup-*
+ui-backups/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
