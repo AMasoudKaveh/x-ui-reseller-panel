@@ -203,3 +203,26 @@
     -webkit-overflow-scrolling: touch;
   }
 }
+
+.github-project-link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: fit-content;
+  margin-top: 9px;
+  color: inherit;
+  opacity: .78;
+  font-size: 13px;
+  text-decoration: none;
+  transition: opacity .18s ease;
+}
+
+.github-project-link:hover {
+  opacity: 1;
+}
+
+.github-project-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+}
