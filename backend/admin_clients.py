@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Cookie, HTTPException
 
 import backend.admin_representatives as admin_reps
-from backend.reseller_create_user import expiry_to_ms, gb_to_bytes, normalize_inbound_ids
+from backend.reseller_create_user import expiry_to_ms, gb_to_bytes, normalize_inbound_ids, resolve_expiry_ms
 from backend.reseller_profile import SESSION_COOKIE, connect_db
 from backend.reseller_user_actions import (
     ModifyUserBody,
@@ -217,7 +217,10 @@ def _age_label(value: Any) -> str:
 
 def _expiry_label(expire_at_ms: Any) -> str:
     value = to_int(expire_at_ms, 0)
-    if value <= 0:
+    if value < 0:
+        days = max(1, int(abs(value) // 86_400_000))
+        return f"After first use · {days} day" if days == 1 else f"After first use · {days} days"
+    if value == 0:
         return "∞"
     remaining = int(value / 1000 - time.time())
     if remaining <= 0:
@@ -476,6 +479,8 @@ def admin_client_details(
     if expiry_ms > 0:
         with contextlib.suppress(Exception):
             expiry_date = datetime.fromtimestamp(expiry_ms / 1000).strftime("%Y-%m-%d")
+    start_after_first_use = expiry_ms < 0
+    start_after_days = int(abs(expiry_ms) // 86_400_000) if start_after_first_use else 0
     panel_enabled = panel.get("enable")
     enabled = bool(panel_enabled) if panel_enabled is not None else bool(to_int(local.get("enabled"), 1))
 
@@ -488,6 +493,8 @@ def admin_client_details(
             "owner": str(local.get("owner_username") or ""),
             "traffic_gb": round(traffic / 1024 / 1024 / 1024, 4),
             "expiry_date": expiry_date,
+            "start_after_first_use": start_after_first_use,
+            "start_after_days": start_after_days,
             "enabled": enabled,
             "comment": strip_internal_comment(panel.get("comment") or local.get("panel_comment")),
             "inbound_ids": inbound_ids_for(panel, local),
@@ -544,7 +551,7 @@ def modify_admin_client(
         raise HTTPException(status_code=400, detail="Telegram User ID must be numeric")
 
     total_bytes = gb_to_bytes(body.traffic_gb)
-    expiry_ms = expiry_to_ms(body.expiry_date)
+    expiry_ms = resolve_expiry_ms(body.expiry_date, body.start_after_first_use, body.start_after_days)
     if body.enabled:
         ok, reason = _can_enable(local, total_bytes=total_bytes, expiry_ms=expiry_ms)
         if not ok:

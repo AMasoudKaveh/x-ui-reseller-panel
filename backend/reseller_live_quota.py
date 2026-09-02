@@ -928,7 +928,7 @@ def panel_client_state(
             0,
         )
 
-    if expiry_ms <= 0:
+    if expiry_ms == 0:
         expiry_ms = to_int(
             local.get("expire_at_ms"),
             0,
@@ -954,7 +954,7 @@ def panel_client_state(
         "total_limit_bytes":
             max(0, int(total_limit or 0)),
         "expiry_ms":
-            max(0, int(expiry_ms or 0)),
+            int(expiry_ms or 0),
     }
 
 
@@ -2596,8 +2596,10 @@ def _step7b_build_snapshot(xui: XUIClient, known_emails: list[str]):
             if total > 0:
                 state["total_limit_bytes"] = max(state["total_limit_bytes"], total)
             expiry = to_int(client.get("expiryTime"), 0)
-            if expiry > 0:
-                state["expiry_ms"] = max(state["expiry_ms"], expiry)
+            if expiry != 0:
+                current_expiry = to_int(state.get("expiry_ms"), 0)
+                if current_expiry == 0 or expiry > 0:
+                    state["expiry_ms"] = expiry if current_expiry == 0 else max(current_expiry, expiry)
             if "enable" in client:
                 state["enabled"] = bool(client.get("enable"))
 
@@ -2635,8 +2637,10 @@ def _step7b_build_snapshot(xui: XUIClient, known_emails: list[str]):
             if total > 0:
                 state["total_limit_bytes"] = max(state["total_limit_bytes"], total)
             expiry = first_number(stat, ("expiryTime", "expiry", "expire", "expireAt", "expire_at"))
-            if expiry > 0:
-                state["expiry_ms"] = max(state["expiry_ms"], expiry)
+            if expiry != 0:
+                current_expiry = to_int(state.get("expiry_ms"), 0)
+                if current_expiry == 0 or expiry > 0:
+                    state["expiry_ms"] = expiry if current_expiry == 0 else max(current_expiry, expiry)
             enabled = first_bool(stat, ("enable", "enabled", "active"))
             if enabled is not None:
                 state["enabled"] = enabled
@@ -2708,7 +2712,7 @@ def panel_client_state(xui: XUIClient, local: dict, online_set: set[str]) -> dic
         if total_limit <= 0:
             total_limit = to_int(local.get("total_limit_bytes"), 0)
         expiry_ms = to_int(state.get("expiry_ms"), 0)
-        if expiry_ms <= 0:
+        if expiry_ms == 0:
             expiry_ms = to_int(local.get("expire_at_ms"), 0)
         up = max(0, to_int(state.get("panel_up_bytes"), 0))
         down = max(0, to_int(state.get("panel_down_bytes"), 0))
@@ -2723,7 +2727,7 @@ def panel_client_state(xui: XUIClient, local: dict, online_set: set[str]) -> dic
             "panel_down_bytes": down,
             "panel_used_bytes": used,
             "total_limit_bytes": max(0, total_limit),
-            "expiry_ms": max(0, expiry_ms),
+            "expiry_ms": int(expiry_ms),
         }
 
     return _STEP7B_OLD_PANEL_CLIENT_STATE(xui, local, online_set)

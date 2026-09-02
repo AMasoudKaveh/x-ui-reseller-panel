@@ -1436,21 +1436,15 @@ const [
                                 >
 
                                   {
-                                    user
-                                      .expire_at_ms
-                                    > 0
-
-                                      ? (
-                                        user.status_code
-                                        ===
-                                        "expired"
-
-                                          ? "Expired"
-
-                                          : `Expires in ${user.expires_in}`
-                                      )
-
-                                      : "No expiry"
+                                    user.expire_at_ms < 0
+                                      ? user.expires_in
+                                      : user.expire_at_ms > 0
+                                        ? (
+                                          user.status_code === "expired"
+                                            ? "Expired"
+                                            : `Expires in ${user.expires_in}`
+                                        )
+                                        : "No expiry"
                                   }
 
                                 </span>

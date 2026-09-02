@@ -86,7 +86,18 @@ export default function CreateUserModal({
   ] = useState("");
 
 
+
   const [
+    startAfterFirstUse,
+    setStartAfterFirstUse
+  ] = useState(false);
+
+  const [
+    startAfterDays,
+    setStartAfterDays
+  ] = useState("30");
+
+const [
     enabled,
     setEnabled
   ] = useState(true);
@@ -422,7 +433,22 @@ export default function CreateUserModal({
               expiry_date:
                 expiry,
 
-              enabled,
+
+              start_after_first_use:
+                startAfterFirstUse,
+
+              start_after_days:
+                startAfterFirstUse
+                  ? Math.max(
+                      1,
+                      Number(
+                        startAfterDays
+                        ||
+                        0
+                      )
+                    )
+                  : 0,
+enabled,
 
               comment:
                 comment.trim(),
@@ -476,7 +502,11 @@ export default function CreateUserModal({
 
         setExpiry("");
 
-        setComment("");
+
+        setStartAfterFirstUse(false);
+        setStartAfterDays("30");
+
+setComment("");
 
         setLimitIp("0");
 
@@ -721,7 +751,7 @@ export default function CreateUserModal({
                           .value
                       )
                   }
-                  disabled={saving}
+                  disabled={saving || startAfterFirstUse}
                 />
 
               </label>
@@ -909,21 +939,37 @@ export default function CreateUserModal({
                     </label>
 
 
-                    <div
-                      className="
-                        xcu-option-row
-                      "
-                    >
+                    <label className="xcu-field">
+                      <span>Start After First Use</span>
+                      <select
+                        value={startAfterFirstUse ? "on" : "off"}
+                        onChange={event => {
+                          const on = event.target.value === "on";
+                          setStartAfterFirstUse(on);
+                          if (on) setExpiry("");
+                        }}
+                        disabled={saving}
+                      >
+                        <option value="off">Off</option>
+                        <option value="on">On</option>
+                      </select>
+                      <small>Expiry timer starts after first traffic.</small>
+                    </label>
 
-                      <span>
-                        Start After First Use
-                      </span>
-
-                      <strong>
-                        Off
-                      </strong>
-
-                    </div>
+                    {startAfterFirstUse ? (
+                      <label className="xcu-field">
+                        <span>Duration (days)</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="3650"
+                          step="1"
+                          value={startAfterDays}
+                          onChange={event => setStartAfterDays(event.target.value)}
+                          disabled={saving}
+                        />
+                      </label>
+                    ) : null}
 
 
                     <div

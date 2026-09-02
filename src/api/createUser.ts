@@ -1,4 +1,4 @@
-﻿export type XuiInbound = {
+export type XuiInbound = {
   id: number;
   label: string;
   remark: string;
@@ -14,6 +14,8 @@ export type CreateUserPayload = {
   username: string;
   traffic_gb: number;
   expiry_date: string;
+  start_after_first_use: boolean;
+  start_after_days: number;
   enabled: boolean;
   comment: string;
   inbound_ids: number[];

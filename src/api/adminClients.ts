@@ -43,6 +43,8 @@ export type AdminClientDetail = {
   owner: string;
   traffic_gb: number;
   expiry_date: string;
+  start_after_first_use: boolean;
+  start_after_days: number;
   enabled: boolean;
   comment: string;
   inbound_ids: number[];
@@ -69,6 +71,8 @@ export type AdminClientInbound = {
 export type ModifyAdminClientPayload = {
   traffic_gb: number;
   expiry_date: string;
+  start_after_first_use: boolean;
+  start_after_days: number;
   enabled: boolean;
   comment: string;
   inbound_ids: number[];

@@ -354,7 +354,20 @@ def expiry_label(
     expire_at_ms: int,
 ) -> str:
 
-    if expire_at_ms <= 0:
+    if expire_at_ms < 0:
+
+        days = max(
+            1,
+            int(abs(expire_at_ms) // 86_400_000),
+        )
+
+        return (
+            f"After first use · {days} day"
+            if days == 1
+            else f"After first use · {days} days"
+        )
+
+    if expire_at_ms == 0:
 
         return "Never"
 

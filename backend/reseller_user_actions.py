@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from backend.reseller_profile import SESSION_COOKIE, connect_db, get_reseller_from_session
 from backend.reseller_users import ensure_users_schema
-from backend.reseller_create_user import allowed_inbound_ids, expiry_to_ms, gb_to_bytes, normalize_inbound_ids
+from backend.reseller_create_user import allowed_inbound_ids, expiry_to_ms, gb_to_bytes, normalize_inbound_ids, resolve_expiry_ms
 from backend.xui_client import XUI_BASE_URL, XUIClient, XUIError, env_bool, env_string
 
 router = APIRouter(prefix="/api/reseller", tags=["Reseller User Actions"])
@@ -27,6 +27,8 @@ UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abA
 class ModifyUserBody(BaseModel):
     traffic_gb: float = Field(default=0, ge=0, le=100000)
     expiry_date: str = ""
+    start_after_first_use: bool = False
+    start_after_days: int = Field(default=0, ge=0, le=3650)
     enabled: bool = True
     comment: str = ""
     inbound_ids: list[int] = []
@@ -223,7 +225,7 @@ def safe_update(
         "enable": bool(enabled) if enabled is not None else bool(current_enabled),
         "limitIp": max(0, int(limit_ip)) if limit_ip is not None else to_int(panel.get("limitIp"), to_int(local.get("limit_ip"), 0)),
         "totalGB": max(0, int(total_bytes)) if total_bytes is not None else to_int(panel.get("totalGB"), to_int(local.get("total_limit_bytes"), 0)),
-        "expiryTime": max(0, int(expiry_ms)) if expiry_ms is not None else to_int(panel.get("expiryTime"), to_int(local.get("expire_at_ms"), 0)),
+        "expiryTime": int(expiry_ms) if expiry_ms is not None else to_int(panel.get("expiryTime"), to_int(local.get("expire_at_ms"), 0)),
         "tgId": max(0, int(telegram_id)) if telegram_id is not None else to_int(panel.get("tgId"), 0),
         "comment": str(comment) if comment is not None else str(panel.get("comment") or local.get("panel_comment") or ""),
         "group": str(panel.get("group") or local.get("group_name") or f"rep_{rep_id}"),
@@ -413,6 +415,8 @@ def user_details(client_id: int, xui_session: str | None = Cookie(default=None, 
     if expiry_ms > 0:
         with contextlib.suppress(Exception):
             expiry_date = datetime.fromtimestamp(expiry_ms / 1000).strftime("%Y-%m-%d")
+    start_after_first_use = expiry_ms < 0
+    start_after_days = int(abs(expiry_ms) // 86_400_000) if start_after_first_use else 0
     en = panel.get("enable")
     enabled = bool(en) if en is not None else bool(local.get("enabled", 1))
     return {
@@ -422,6 +426,8 @@ def user_details(client_id: int, xui_session: str | None = Cookie(default=None, 
             "username": local.get("email"),
             "traffic_gb": round(traffic / 1024 / 1024 / 1024, 4),
             "expiry_date": expiry_date,
+            "start_after_first_use": start_after_first_use,
+            "start_after_days": start_after_days,
             "enabled": enabled,
             "comment": strip_internal_comment(panel.get("comment") or local.get("panel_comment")),
             "inbound_ids": inbound_ids_for(panel, local),
@@ -448,7 +454,7 @@ def modify_user(client_id: int, body: ModifyUserBody, xui_session: str | None = 
     try:
         result = safe_update(
             xui=xui, local=local, rep_id=rep_id, inbound_ids=ids,
-            total_bytes=gb_to_bytes(body.traffic_gb), expiry_ms=expiry_to_ms(body.expiry_date),
+            total_bytes=gb_to_bytes(body.traffic_gb), expiry_ms=resolve_expiry_ms(body.expiry_date, body.start_after_first_use, body.start_after_days),
             limit_ip=body.limit_ip, enabled=body.enabled,
             comment=make_comment(rep_id, str(local.get("email") or ""), body.comment),
             telegram_id=int(tg) if tg else 0,

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import re
@@ -60,6 +60,14 @@ class CreateUserBody(
 
     expiry_date: str = ""
 
+
+    start_after_first_use: bool = False
+
+    start_after_days: int = Field(
+        default=0,
+        ge=0,
+        le=3650,
+    )
     enabled: bool = True
 
     comment: str = ""
@@ -138,6 +146,23 @@ def expiry_to_ms(
             status_code=400,
             detail="Invalid expiry date",
         )
+
+
+def resolve_expiry_ms(
+    expiry_date: str,
+    start_after_first_use: bool = False,
+    start_after_days: int = 0,
+) -> int:
+    if bool(start_after_first_use):
+        days = int(start_after_days or 0)
+        if days <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Start After First Use requires at least 1 day",
+            )
+        return -(days * 86_400_000)
+
+    return expiry_to_ms(expiry_date)
 
 
 def normalize_inbound_ids(
@@ -541,8 +566,10 @@ def create_reseller_user(
         )
 
 
-    expiry_ms = expiry_to_ms(
-        body.expiry_date
+    expiry_ms = resolve_expiry_ms(
+        body.expiry_date,
+        body.start_after_first_use,
+        body.start_after_days,
     )
 
 

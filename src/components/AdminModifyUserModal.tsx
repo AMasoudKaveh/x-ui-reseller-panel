@@ -28,6 +28,8 @@ export default function AdminModifyUserModal({ open, userId, onClose, onSaved }:
   const [owner, setOwner] = useState("");
   const [traffic, setTraffic] = useState("");
   const [expiry, setExpiry] = useState("");
+  const [startAfterFirstUse, setStartAfterFirstUse] = useState(false);
+  const [startAfterDays, setStartAfterDays] = useState("30");
   const [enabled, setEnabled] = useState(true);
   const [comment, setComment] = useState("");
   const [limitIp, setLimitIp] = useState("0");
@@ -58,6 +60,8 @@ export default function AdminModifyUserModal({ open, userId, onClose, onSaved }:
         setOwner(detail.owner || "");
         setTraffic(detail.traffic_gb > 0 ? String(detail.traffic_gb) : "");
         setExpiry(detail.expiry_date || "");
+        setStartAfterFirstUse(Boolean(detail.start_after_first_use));
+        setStartAfterDays(String(detail.start_after_days || 30));
         setEnabled(detail.enabled);
         setComment(detail.comment || "");
         setLimitIp(String(detail.limit_ip || 0));
@@ -132,6 +136,8 @@ export default function AdminModifyUserModal({ open, userId, onClose, onSaved }:
       await modifyAdminClient(userId, {
         traffic_gb: Math.max(0, Number(traffic || 0)),
         expiry_date: expiry,
+        start_after_first_use: startAfterFirstUse,
+        start_after_days: startAfterFirstUse ? Math.max(1, Number(startAfterDays || 0)) : 0,
         enabled,
         comment: comment.trim(),
         inbound_ids: selected,
@@ -166,7 +172,7 @@ export default function AdminModifyUserModal({ open, userId, onClose, onSaved }:
               <div className="xcu-grid">
                 <label className="xcu-field"><span>Username</span><div className="xcu-input-action"><input value={username} readOnly/><button type="button" disabled><LockKeyhole size={16}/></button></div></label>
                 <label className="xcu-field"><span>Traffic Limit (GB)</span><input type="number" min="0" step="0.01" value={traffic} onChange={e=>setTraffic(e.target.value)} placeholder="0 = unlimited" disabled={saving}/></label>
-                <label className="xcu-field"><span>Expiry</span><input type="date" value={expiry} onChange={e=>setExpiry(e.target.value)} disabled={saving}/></label>
+                <label className="xcu-field"><span>Expiry</span><input type="date" value={expiry} onChange={e=>setExpiry(e.target.value)} disabled={saving || startAfterFirstUse}/></label>
                 <label className="xcu-field"><span>Status</span><select value={enabled ? "enabled" : "disabled"} onChange={e=>setEnabled(e.target.value === "enabled")} disabled={saving}><option value="enabled">Enabled</option><option value="disabled">Disabled</option></select></label>
                 <label className="xcu-field xcu-full"><span>Comment</span><textarea value={comment} onChange={e=>setComment(e.target.value)} placeholder="Optional note for this user ..." disabled={saving}/></label>
               </div>
@@ -176,6 +182,8 @@ export default function AdminModifyUserModal({ open, userId, onClose, onSaved }:
                 {advancedOpen ? <div className="xcu-advanced-body">
                   <label className="xcu-field"><span>IP Limit</span><input type="number" min="0" step="1" value={limitIp} onChange={e=>setLimitIp(e.target.value)} disabled={saving}/><small>0 = unlimited</small></label>
                   <label className="xcu-field"><span>Telegram User ID</span><input value={telegramId} onChange={e=>setTelegramId(e.target.value)} placeholder="Optional" disabled={saving}/></label>
+                  <label className="xcu-field"><span>Start After First Use</span><select value={startAfterFirstUse ? "on" : "off"} onChange={e=>{const on=e.target.value==="on";setStartAfterFirstUse(on);if(on)setExpiry("");}} disabled={saving}><option value="off">Off</option><option value="on">On</option></select><small>Expiry timer starts after first traffic.</small></label>
+                  {startAfterFirstUse ? <label className="xcu-field"><span>Duration (days)</span><input type="number" min="1" max="3650" step="1" value={startAfterDays} onChange={e=>setStartAfterDays(e.target.value)} disabled={saving}/></label> : null}
                   <div className="xcu-option-row"><span>Representative</span><strong>{owner || "—"}</strong></div>
                   <div className="xcu-option-row"><span>Auto Renew</span><strong>Off</strong></div>
                 </div> : null}

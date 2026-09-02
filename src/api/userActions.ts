@@ -3,6 +3,8 @@ export type UserActionDetail = {
   username: string;
   traffic_gb: number;
   expiry_date: string;
+  start_after_first_use: boolean;
+  start_after_days: number;
   enabled: boolean;
   comment: string;
   inbound_ids: number[];
@@ -17,6 +19,8 @@ export type UserActionDetail = {
 export type ModifyUserPayload = {
   traffic_gb: number;
   expiry_date: string;
+  start_after_first_use: boolean;
+  start_after_days: number;
   enabled: boolean;
   comment: string;
   inbound_ids: number[];

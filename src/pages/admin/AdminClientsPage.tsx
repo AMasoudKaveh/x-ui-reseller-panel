@@ -45,6 +45,7 @@ function formatBytes(value: number): string {
 function expiryText(value: string): string {
   if (value === "∞") return "No expiry";
   if (value === "Expired") return "Expired";
+  if (value.startsWith("After first use")) return value;
   return `Expires in ${value}`;
 }
 

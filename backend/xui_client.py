@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import contextlib
 import json
@@ -866,13 +866,7 @@ class XUIClient:
                 ),
 
             "expiryTime":
-                max(
-                    0,
-                    int(
-                        expiry_ms
-                        or 0
-                    ),
-                ),
+                int(expiry_ms or 0),
 
             "enable":
                 bool(enabled),
