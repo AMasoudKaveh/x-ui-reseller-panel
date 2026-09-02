@@ -367,7 +367,7 @@ update_from_git() {
     return 1
   fi
   cd "$APP_DIR"
-  git pull --ff-only
+  git -c http.version=HTTP/1.1 pull --ff-only
   "$VENV/bin/pip" install -r "$BACKEND_DIR/requirements.txt"
   npm ci
   npm run build
