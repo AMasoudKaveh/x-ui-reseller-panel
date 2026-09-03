@@ -2628,10 +2628,29 @@ def _step7b_build_snapshot(xui: XUIClient, known_emails: list[str]):
             up = first_number(stat, ("up", "upload", "uplink", "upBytes", "up_bytes"))
             down = first_number(stat, ("down", "download", "downlink", "downBytes", "down_bytes"))
             used = first_number(stat, ("used", "usage", "totalUsed", "total_used", "traffic", "traffic_used"))
-            state["panel_up_bytes"] += max(0, up)
-            state["panel_down_bytes"] += max(0, down)
-            if up + down <= 0:
-                state["panel_used_bytes"] += max(0, used)
+            # Keep current x-ui usage.
+            # Do not sum the same client traffic across multiple inbounds.
+            # Prefer explicit used value when x-ui provides it.
+            if used > 0:
+                state["panel_used_bytes"] = max(
+                    state["panel_used_bytes"],
+                    used,
+                )
+            else:
+                state["panel_used_bytes"] = max(
+                    state["panel_used_bytes"],
+                    up + down,
+                )
+
+            state["panel_up_bytes"] = max(
+                state["panel_up_bytes"],
+                up,
+            )
+
+            state["panel_down_bytes"] = max(
+                state["panel_down_bytes"],
+                down,
+            )
 
             total = first_number(stat, ("totalGB", "total", "limit", "totalBytes", "total_bytes"))
             if total > 0:
@@ -2654,8 +2673,14 @@ def _step7b_build_snapshot(xui: XUIClient, known_emails: list[str]):
                 state["online_hint"] = True
 
     for state in snapshot.values():
-        if state["panel_up_bytes"] + state["panel_down_bytes"] > 0:
-            state["panel_used_bytes"] = state["panel_up_bytes"] + state["panel_down_bytes"]
+        # Only fallback to up+down if x-ui did not provide usage.
+        # Avoid replacing explicit traffic with duplicated inbound totals.
+        if state["panel_used_bytes"] <= 0:
+            state["panel_used_bytes"] = (
+                state["panel_up_bytes"]
+                +
+                state["panel_down_bytes"]
+            )
 
     online: set[str] = set()
     attempts = [
