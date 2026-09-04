@@ -2804,3 +2804,268 @@ async def step7b_probe(
         "endpoint_errors": _STEP7B_LAST_ERRORS[-10:],
         "clients": [dict(row) for row in rows],
     }
+
+
+# === USAGE BASELINE REPAIR V1 ===
+# One-time repair after the multi-inbound traffic duplication fix.
+#
+# Goals:
+# - User live usage always follows current x-ui traffic.
+# - Existing polluted cumulative usage is rebased once to current real usage.
+# - Deleted historical usage is cleared during this one-time baseline.
+# - Representative used_bytes is rebuilt from the repaired ledger.
+# - Future user resets DO NOT reduce representative cumulative usage.
+#
+# The migration marker prevents this baseline from ever running twice.
+
+_USAGE_BASELINE_REPAIR_V1 = "usage_baseline_after_multi_inbound_fix_v1"
+_USAGE_BASELINE_OLD_SYNC_ALL = sync_all
+
+
+def _usage_baseline_repair_v1() -> bool:
+    stamp = now_text()
+
+    with connect_db() as con:
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS maintenance_migrations(
+                name TEXT PRIMARY KEY,
+                applied_at TEXT NOT NULL
+            )
+            """
+        )
+        con.commit()
+
+        already = con.execute(
+            """
+            SELECT 1
+            FROM maintenance_migrations
+            WHERE name=?
+            LIMIT 1
+            """,
+            (_USAGE_BASELINE_REPAIR_V1,),
+        ).fetchone()
+
+        if already:
+            return False
+
+        # Prevent two concurrent sync workers from applying the baseline twice.
+        con.execute("BEGIN IMMEDIATE")
+
+        already = con.execute(
+            """
+            SELECT 1
+            FROM maintenance_migrations
+            WHERE name=?
+            LIMIT 1
+            """,
+            (_USAGE_BASELINE_REPAIR_V1,),
+        ).fetchone()
+
+        if already:
+            con.commit()
+            return False
+
+        clients = con.execute(
+            """
+            SELECT
+                id,
+                COALESCE(panel_used_bytes, 0) AS panel_used_bytes
+            FROM clients
+            WHERE LOWER(COALESCE(status, '')) != 'deleted'
+            """
+        ).fetchall()
+
+        repaired_clients = 0
+        created_ledgers = 0
+
+        for row in clients:
+            client_id = int(row["id"])
+            current_used = max(
+                0,
+                int(row["panel_used_bytes"] or 0),
+            )
+
+            ledger = con.execute(
+                """
+                SELECT 1
+                FROM traffic_ledger
+                WHERE client_id=?
+                """,
+                (client_id,),
+            ).fetchone()
+
+            if ledger:
+                con.execute(
+                    """
+                    UPDATE traffic_ledger
+                    SET
+                        last_panel_total=?,
+                        last_panel_used_bytes=?,
+                        cumulative_used_bytes=?,
+                        last_seen_at=?
+                    WHERE client_id=?
+                    """,
+                    (
+                        current_used,
+                        current_used,
+                        current_used,
+                        stamp,
+                        client_id,
+                    ),
+                )
+            else:
+                con.execute(
+                    """
+                    INSERT INTO traffic_ledger(
+                        client_id,
+                        last_panel_total,
+                        cumulative_used_bytes,
+                        reset_detected_count,
+                        last_seen_at,
+                        last_panel_used_bytes
+                    )
+                    VALUES(?,?,?,?,?,?)
+                    """,
+                    (
+                        client_id,
+                        current_used,
+                        current_used,
+                        0,
+                        stamp,
+                        current_used,
+                    ),
+                )
+                created_ledgers += 1
+
+            repaired_clients += 1
+
+        # This migration intentionally creates a clean baseline based only
+        # on users that currently exist. Old deleted-user accounting may
+        # contain the same duplicated traffic bug, so it must not survive
+        # the one-time repair.
+        deleted_usage_exists = con.execute(
+            """
+            SELECT 1
+            FROM sqlite_master
+            WHERE type='table'
+              AND name='deleted_client_usage'
+            """
+        ).fetchone()
+
+        if deleted_usage_exists:
+            con.execute(
+                """
+                UPDATE deleted_client_usage
+                SET cumulative_used_bytes=0
+                """
+            )
+
+        # Deleted local clients must not contribute polluted historical usage.
+        con.execute(
+            """
+            UPDATE traffic_ledger
+            SET
+                last_panel_total=0,
+                last_panel_used_bytes=0,
+                cumulative_used_bytes=0
+            WHERE client_id IN (
+                SELECT id
+                FROM clients
+                WHERE LOWER(COALESCE(status, ''))='deleted'
+            )
+            """
+        )
+
+        # Rebuild every representative's used_bytes with the exact same
+        # accounting function used by the live quota system.
+        reps = con.execute(
+            """
+            SELECT id
+            FROM representatives
+            """
+        ).fetchall()
+
+        repaired_reps = 0
+
+        for rep in reps:
+            rep_id = int(rep["id"])
+            used = max(
+                0,
+                int(representative_usage(con, rep_id)),
+            )
+
+            con.execute(
+                """
+                UPDATE representatives
+                SET used_bytes=?
+                WHERE id=?
+                """,
+                (
+                    used,
+                    rep_id,
+                ),
+            )
+
+            repaired_reps += 1
+
+        con.execute(
+            """
+            INSERT INTO maintenance_migrations(
+                name,
+                applied_at
+            )
+            VALUES(?,?)
+            """,
+            (
+                _USAGE_BASELINE_REPAIR_V1,
+                stamp,
+            ),
+        )
+
+        con.commit()
+
+    print(
+        "[usage-repair-v1] applied:"
+        f" clients={repaired_clients}"
+        f" ledgers_created={created_ledgers}"
+        f" representatives={repaired_reps}"
+    )
+
+    return True
+
+
+def sync_all(*args, **kwargs):
+    result = _USAGE_BASELINE_OLD_SYNC_ALL(
+        *args,
+        **kwargs,
+    )
+
+    # Baseline only after a successful sync using the fixed x-ui
+    # traffic snapshot. If the sync fails, do nothing and retry later.
+    if not isinstance(result, dict) or not result.get("ok"):
+        return result
+
+    try:
+        repaired = _usage_baseline_repair_v1()
+    except Exception as exc:
+        print(
+            "[usage-repair-v1] failed:",
+            repr(exc),
+        )
+        # No marker is written on failure, so the next successful sync
+        # will retry automatically.
+        return result
+
+    if repaired:
+        # One additional sync starts normal delta accounting from the
+        # clean baseline and refreshes representative quota state.
+        try:
+            return _USAGE_BASELINE_OLD_SYNC_ALL(True)
+        except Exception as exc:
+            print(
+                "[usage-repair-v1] post-repair sync failed:",
+                repr(exc),
+            )
+
+    return result
