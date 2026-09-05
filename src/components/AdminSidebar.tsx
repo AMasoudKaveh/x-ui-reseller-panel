@@ -2,6 +2,7 @@ import {
   ChevronDown,
   CircleHelp,
   LayoutDashboard,
+  KeyRound,
   LogOut,
   Moon,
   Network,
@@ -14,7 +15,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { useThemeSettings } from "../theme/ThemeProvider";
 
-export type AdminPage = "dashboard" | "resellers" | "clients" | "inbounds" | "settings";
+export type AdminPage = "dashboard" | "resellers" | "clients" | "inbounds" | "api" | "settings";
 
 type Props = {
   page: AdminPage;
@@ -28,6 +29,7 @@ const nav = [
   { icon: ShieldCheck, label: "Representatives", page: "resellers" as AdminPage },
   { icon: UsersRound, label: "Clients", page: "clients" as AdminPage },
   { icon: Network, label: "Inbounds", page: "inbounds" as AdminPage },
+  { icon: KeyRound, label: "API", page: "api" as AdminPage },
   { icon: Settings2, label: "Settings", page: "settings" as AdminPage }
 ];
 
