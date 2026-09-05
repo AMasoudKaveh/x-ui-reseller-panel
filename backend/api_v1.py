@@ -30,6 +30,8 @@ from fastapi.security import (
 )
 from pydantic import BaseModel, Field
 
+from backend.api_rate_limit import enforce_api_rate_limit
+
 from backend.reseller_profile import (
     SESSION_COOKIE,
     connect_db,
@@ -517,6 +519,7 @@ def normalize_scopes(
 
 
 def require_api_key(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Security(
         api_bearer
     ),
@@ -629,6 +632,12 @@ def require_api_key(
             str(item)
             for item in raw_scopes
             if str(item) in FULL_SCOPES
+        )
+
+
+        enforce_api_rate_limit(
+            identity=f"reseller:{int(row['id'])}",
+            method=request.method,
         )
 
         con.execute(

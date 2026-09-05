@@ -28,6 +28,8 @@ from fastapi.security import (
 
 from pydantic import BaseModel, Field
 
+from backend.api_rate_limit import enforce_api_rate_limit
+
 from backend.reseller_profile import (
     SESSION_COOKIE,
     connect_db,
@@ -378,6 +380,7 @@ def normalize_admin_scopes(
 
 
 def require_admin_api_key(
+    request: Request,
     credentials:
         HTTPAuthorizationCredentials
         | None
@@ -534,6 +537,12 @@ def require_admin_api_key(
             in raw_scopes
             if str(item)
             in ADMIN_SCOPES
+        )
+
+
+        enforce_api_rate_limit(
+            identity=f"admin:{int(row['id'])}",
+            method=request.method,
         )
 
         con.execute(
