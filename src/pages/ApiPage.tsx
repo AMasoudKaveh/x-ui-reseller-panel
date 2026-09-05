@@ -1,4 +1,4 @@
-﻿import {
+import {
   Check,
   Copy,
   KeyRound,
@@ -20,6 +20,8 @@ import {
   revokeApiKey,
   type ApiKeyItem
 } from "../api/apiKeys";
+
+import { copyTextToClipboard } from "../utils/clipboard";
 
 import "../api-page.css";
 
@@ -257,10 +259,14 @@ export default function ApiPage() {
       return;
     }
 
-    await navigator.clipboard
-      .writeText(
+    const copiedSuccessfully =
+      await copyTextToClipboard(
         createdToken
       );
+
+    if (!copiedSuccessfully) {
+      return;
+    }
 
     setCopied(true);
 

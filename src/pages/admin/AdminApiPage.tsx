@@ -21,6 +21,8 @@ import {
   type ApiKeyItem
 } from "../../api/adminApiKeys";
 
+import { copyTextToClipboard } from "../../utils/clipboard";
+
 import "../../api-page.css";
 
 
@@ -254,10 +256,14 @@ export default function AdminApiPage() {
       return;
     }
 
-    await navigator.clipboard
-      .writeText(
+    const copiedSuccessfully =
+      await copyTextToClipboard(
         createdToken
       );
+
+    if (!copiedSuccessfully) {
+      return;
+    }
 
     setCopied(true);
 
@@ -723,7 +729,7 @@ export default function AdminApiPage() {
 
 
                             <code className="api-key-prefix">
-                              {item.key_prefix}••••••••
+                              {item.key_prefix}â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢
                             </code>
 
 
