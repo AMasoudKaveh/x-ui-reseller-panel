@@ -625,3 +625,15 @@ app.include_router(
     admin_settings_router
 )
 # === END ADMIN SETTINGS ROUTER ===
+
+# === PUBLIC API V1 ===
+from backend.api_v1 import (
+    router as api_v1_router,
+    management_router as reseller_api_keys_router,
+    docs_router as api_v1_docs_router,
+)
+
+app.include_router(api_v1_router)
+app.include_router(reseller_api_keys_router)
+app.include_router(api_v1_docs_router)
+# === END PUBLIC API V1 ===
