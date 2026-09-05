@@ -5,10 +5,11 @@ import RepresentativesPage from "../pages/admin/RepresentativesPage";
 import AdminClientsPage from "../pages/admin/AdminClientsPage";
 import InboundsPage from "../pages/admin/InboundsPage";
 import AdminSettingsPage from "../pages/admin/AdminSettingsPage";
+import AdminApiPage from "../pages/admin/AdminApiPage";
 
 function getAdminPageFromHash(): AdminPage {
   const part = window.location.hash.replace(/^#\/admin\/?/, "").split(/[/?#]/)[0];
-  if (part === "resellers" || part === "clients" || part === "inbounds" || part === "settings") return part;
+  if (part === "resellers" || part === "clients" || part === "inbounds" || part === "api" || part === "settings") return part;
   return "dashboard";
 }
 
@@ -36,6 +37,7 @@ export default function AdminShell({ username, onLogout }: { username: string; o
         {page === "resellers" && <RepresentativesPage />}
         {page === "clients" && <AdminClientsPage />}
         {page === "inbounds" && <InboundsPage />}
+        {page === "api" && <AdminApiPage />}
         {page === "settings" && <AdminSettingsPage />}
       </div>
     </div>

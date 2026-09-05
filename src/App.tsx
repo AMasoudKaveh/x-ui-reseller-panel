@@ -1,4 +1,4 @@
-﻿import {
+import {
   useEffect,
   useState,
 } from "react";
@@ -14,6 +14,9 @@ import UsersPage
 
 import SettingsPage
   from "./pages/SettingsPage";
+
+import ApiPage
+  from "./pages/ApiPage";
 
 import LoginPage
   from "./pages/LoginPage";
@@ -38,6 +41,7 @@ import {
 export type AppPage =
   | "dashboard"
   | "users"
+  | "api"
   | "settings";
 
 
@@ -70,6 +74,16 @@ AppPage {
   ) {
 
     return "users";
+  }
+
+
+  if (
+    hash.startsWith(
+      "#/reseller/api"
+    )
+  ) {
+
+    return "api";
   }
 
 
@@ -187,6 +201,13 @@ function ResellerPanel({
           page === "users"
           &&
           <UsersPage />
+        }
+
+
+        {
+          page === "api"
+          &&
+          <ApiPage />
         }
 
 

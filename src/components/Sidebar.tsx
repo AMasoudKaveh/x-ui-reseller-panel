@@ -1,8 +1,9 @@
-﻿import {
+import {
   ChevronDown,
   ChevronLeft,
   CircleHelp,
   LayoutGrid,
+  KeyRound,
   LogOut,
   Moon,
   Settings2,
@@ -60,6 +61,12 @@ const nav = [
     icon: UsersRound,
     label: "Users",
     page: "users" as AppPage
+  },
+
+  {
+    icon: KeyRound,
+    label: "API",
+    page: "api" as AppPage
   },
 
   {
