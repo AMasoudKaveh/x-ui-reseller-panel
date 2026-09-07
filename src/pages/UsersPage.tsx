@@ -1610,6 +1610,42 @@ const [
                                     moreMenuFor === userId
                                       ? (
                                         <div className="ua-more-menu">
+                                          <div className="ua-mobile-actions-v3">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                void handleCopySubscription(user);
+                                                setMoreMenuFor(null);
+                                              }}
+                                            >
+                                              <Link2 size={18} />
+                                              <span>Copy Subscription</span>
+                                            </button>
+
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                void handleCopyConfigs(user);
+                                                setMoreMenuFor(null);
+                                              }}
+                                            >
+                                              <Copy size={18} />
+                                              <span>Copy Configs</span>
+                                            </button>
+
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setSubscriptionUser(user);
+                                                setMoreMenuFor(null);
+                                              }}
+                                            >
+                                              <QrCode size={18} />
+                                              <span>QR Code</span>
+                                            </button>
+
+                                            <div className="ua-menu-divider" />
+                                          </div>
                                           <button
                                             type="button"
                                             onClick={() => {
