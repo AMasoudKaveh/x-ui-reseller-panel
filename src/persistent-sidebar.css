@@ -226,3 +226,172 @@
   height: 18px;
   flex: 0 0 18px;
 }
+
+/* MOBILE_ACCOUNT_PANEL_V2
+   Restore reseller account / quota information on phones
+*/
+@media (max-width: 680px) {
+
+  .sidebar {
+    overflow: visible !important;
+  }
+
+  /*
+   * Leave room for a dedicated account button
+   * beside the normal mobile navigation.
+   */
+  .sidebar .nav-list {
+    width: auto !important;
+    min-width: 0 !important;
+
+    flex: 1 1 auto !important;
+  }
+
+  .sidebar .account-menu-wrap {
+    position: relative !important;
+
+    display: block !important;
+
+    flex: 0 0 52px !important;
+
+    width: 52px !important;
+    height: 50px !important;
+
+    margin: 0 !important;
+  }
+
+  /*
+   * Compact profile icon button.
+   */
+  .sidebar .account-panel-button {
+    position: relative !important;
+
+    display: block !important;
+
+    width: 50px !important;
+    height: 50px !important;
+
+    min-width: 50px !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+
+    border: 0 !important;
+    border-radius: 8px !important;
+
+    background: transparent !important;
+
+    color: var(--text) !important;
+  }
+
+  .sidebar .account-panel-button:hover,
+  .sidebar .account-panel-button.open {
+    background:
+      color-mix(
+        in srgb,
+        var(--accent) 16%,
+        transparent
+      ) !important;
+  }
+
+  .sidebar .account-panel-button .account-main-row,
+  .sidebar .account-panel-button .quota-track {
+    display: none !important;
+  }
+
+  /*
+   * CSS profile glyph — keeps React untouched.
+   */
+  .sidebar .account-panel-button::before {
+    content: "";
+
+    position: absolute;
+
+    left: 50%;
+    top: 10px;
+
+    width: 9px;
+    height: 9px;
+
+    transform:
+      translateX(-50%);
+
+    border:
+      2px solid
+      currentColor;
+
+    border-radius: 50%;
+  }
+
+  .sidebar .account-panel-button::after {
+    content: "";
+
+    position: absolute;
+
+    left: 50%;
+    bottom: 9px;
+
+    width: 20px;
+    height: 11px;
+
+    transform:
+      translateX(-50%);
+
+    border:
+      2px solid
+      currentColor;
+
+    border-bottom: 0;
+
+    border-radius:
+      12px 12px 4px 4px;
+  }
+
+  /*
+   * Usage / remaining / users panel.
+   */
+  .sidebar .account-popover {
+    position: fixed !important;
+
+    top: auto !important;
+
+    left: 12px !important;
+    right: 12px !important;
+
+    bottom:
+      calc(
+        72px +
+        env(safe-area-inset-bottom)
+      ) !important;
+
+    width: auto !important;
+    max-width: 420px !important;
+
+    margin: 0 auto !important;
+
+    z-index: 500000 !important;
+
+    overflow: hidden !important;
+
+    border-radius: 14px !important;
+
+    box-shadow:
+      0 24px 80px
+      rgba(0, 0, 0, .60) !important;
+  }
+
+  .sidebar .account-popover-main {
+    padding: 17px 15px 14px !important;
+  }
+
+  .sidebar .account-popover-stat {
+    min-height: 30px !important;
+
+    font-size: 13px !important;
+  }
+
+  .sidebar .account-logout-button {
+    min-height: 54px !important;
+  }
+
+}
