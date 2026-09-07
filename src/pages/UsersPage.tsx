@@ -1460,6 +1460,21 @@ const [
 
                                 <div
                                   className="
+                                    up-mobile-usage-line
+                                  "
+                                >
+                                  <span>
+                                    {usedText}
+                                  </span>
+
+                                  <span>
+                                    {limitText}
+                                  </span>
+                                </div>
+
+
+                                <div
+                                  className="
                                     up-usage-progress
                                   "
                                 >
