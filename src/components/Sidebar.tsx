@@ -35,6 +35,10 @@ import {
   useThemeSettings
 } from "../theme/ThemeProvider";
 
+import {
+  useLanguage
+} from "../i18n/LanguageProvider";
+
 
 type Props = {
 
@@ -53,25 +57,25 @@ const nav = [
 
   {
     icon: LayoutGrid,
-    label: "Dashboard",
+    labelKey: "nav.dashboard" as const,
     page: "dashboard" as AppPage
   },
 
   {
     icon: UsersRound,
-    label: "Users",
+    labelKey: "nav.users" as const,
     page: "users" as AppPage
   },
 
   {
     icon: KeyRound,
-    label: "API",
+    labelKey: "nav.api" as const,
     page: "api" as AppPage
   },
 
   {
     icon: Settings2,
-    label: "Settings",
+    labelKey: "nav.settings" as const,
     page: "settings" as AppPage
   }
 
@@ -91,6 +95,13 @@ export default function Sidebar({
     resolvedMode,
     toggleQuickMode
   } = useThemeSettings();
+
+
+  const {
+    language,
+    setLanguage,
+    t
+  } = useLanguage();
 
 
   const [
@@ -304,7 +315,7 @@ export default function Sidebar({
           </div>
 
           <div className="brand-version">
-            Reseller Panel
+            {t("sidebar.resellerPanel")}
           </div>
 
         </div>
@@ -316,7 +327,7 @@ export default function Sidebar({
             brand-collapse
           "
           type="button"
-          aria-label="Collapse sidebar"
+          aria-label={t("sidebar.collapse")}
         >
 
           <ChevronLeft
@@ -330,7 +341,7 @@ export default function Sidebar({
 
 
       <div className="nav-section-label">
-        Platform
+        {t("sidebar.platform")}
       </div>
 
 
@@ -357,7 +368,7 @@ export default function Sidebar({
                         : ""
                     }`
                   }
-                  key={item.label}
+                  key={item.page}
                   type="button"
                   onClick={() =>
                     setPage(
@@ -372,7 +383,7 @@ export default function Sidebar({
                   />
 
                   <span>
-                    {item.label}
+                    {t(item.labelKey)}
                   </span>
 
                 </button>
@@ -397,7 +408,7 @@ export default function Sidebar({
           />
 
           <span>
-            Support Us
+            {t("sidebar.supportUs")}
           </span>
 
         </div>
@@ -407,7 +418,7 @@ export default function Sidebar({
           href="https://github.com/AMasoudKaveh/x-ui-reseller-panel"
           target="_blank"
           rel="noopener noreferrer"
-          title="GitHub Project"
+          title={t("sidebar.githubProject")}
         >
           <svg
             className="github-project-icon"
@@ -420,7 +431,7 @@ export default function Sidebar({
             />
           </svg>
 
-          <span>GitHub Project</span>
+          <span>{t("sidebar.githubProject")}</span>
         </a>
 
 
@@ -434,10 +445,10 @@ export default function Sidebar({
             }
             title={
               resolvedMode === "dark"
-                ? "Switch to light mode"
-                : "Switch to dark mode"
+                ? t("sidebar.switchLight")
+                : t("sidebar.switchDark")
             }
-            aria-label="Toggle color mode"
+            aria-label={t("sidebar.toggleColor")}
           >
 
             {
@@ -457,6 +468,50 @@ export default function Sidebar({
             }
 
           </button>
+
+
+          <div
+            className="language-switch"
+            role="group"
+            aria-label={t("language.label")}
+          >
+
+            <button
+              type="button"
+              className={
+                `language-option ${
+                  language === "en"
+                    ? "active"
+                    : ""
+                }`
+              }
+              onClick={() =>
+                setLanguage("en")
+              }
+              title={t("language.english")}
+            >
+              EN
+            </button>
+
+
+            <button
+              type="button"
+              className={
+                `language-option ${
+                  language === "fa"
+                    ? "active"
+                    : ""
+                }`
+              }
+              onClick={() =>
+                setLanguage("fa")
+              }
+              title={t("language.persian")}
+            >
+              {t("language.persian")}
+            </button>
+
+          </div>
 
         </div>
 
@@ -507,7 +562,7 @@ export default function Sidebar({
                   <span>◷</span>
 
                   <span>
-                    Usage:
+                    {t("sidebar.usage")}:
                     {" "}
                     {usedText}
                     {" / "}
@@ -534,7 +589,7 @@ export default function Sidebar({
                   <span>◫</span>
 
                   <span>
-                    Remaining:
+                    {t("sidebar.remaining")}:
                     {" "}
                     {remainingText}
                   </span>
@@ -547,7 +602,7 @@ export default function Sidebar({
                   <span>▥</span>
 
                   <span>
-                    Total Usage:
+                    {t("sidebar.totalUsage")}:
                     {" "}
                     {usedText}
                   </span>
@@ -563,7 +618,7 @@ export default function Sidebar({
                   />
 
                   <span>
-                    Total Users:
+                    {t("sidebar.totalUsers")}:
                     {" "}
                     {
                       profile
@@ -581,7 +636,7 @@ export default function Sidebar({
                   ? (
 
                     <div className="muted">
-                      Loading profile...
+                      {t("sidebar.loadingProfile")}
                     </div>
 
                   )
@@ -626,7 +681,7 @@ export default function Sidebar({
                 />
 
                 <span>
-                  Log out
+                  {t("sidebar.logout")}
                 </span>
 
               </button>

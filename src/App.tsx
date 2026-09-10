@@ -37,6 +37,10 @@ import {
   ThemeProvider,
 } from "./theme/ThemeProvider";
 
+import {
+  LanguageProvider
+} from "./i18n/LanguageProvider";
+
 
 export type AppPage =
   | "dashboard"
@@ -436,7 +440,11 @@ export default function App() {
 
     <ThemeProvider>
 
-      <AppShell />
+      <LanguageProvider>
+
+        <AppShell />
+
+      </LanguageProvider>
 
     </ThemeProvider>
   );
