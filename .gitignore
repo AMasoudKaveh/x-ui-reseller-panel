@@ -1,6 +1,7 @@
 # Secrets / local runtime
 backend/.env
 backend/.venv/
+.venv-test/
 backend/data/*
 !backend/data/.gitkeep
 

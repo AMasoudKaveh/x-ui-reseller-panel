@@ -58,6 +58,14 @@ class CreateUserBody(
         le=100000,
     )
 
+    # Exact megabyte input for small quotas. When present it takes precedence
+    # over traffic_gb, while traffic_gb remains supported for older clients.
+    traffic_mb: int | None = Field(
+        default=None,
+        ge=1,
+        le=100000000,
+    )
+
     expiry_date: str = ""
 
 
@@ -99,6 +107,13 @@ def gb_to_bytes(
         *
         1024
     )
+
+
+def mb_to_bytes(
+    value: int,
+) -> int:
+
+    return int(value) * 1024 * 1024
 
 
 def expiry_to_ms(
@@ -573,8 +588,10 @@ def create_reseller_user(
     )
 
 
-    total_bytes = gb_to_bytes(
-        body.traffic_gb
+    total_bytes = (
+        mb_to_bytes(body.traffic_mb)
+        if body.traffic_mb is not None
+        else gb_to_bytes(body.traffic_gb)
     )
 
 
