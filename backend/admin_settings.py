@@ -6,7 +6,6 @@ import hmac
 import json
 import os
 import re
-import sqlite3
 import tempfile
 import time
 from datetime import datetime
@@ -15,12 +14,14 @@ from typing import Any
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from fastapi import APIRouter, Cookie, HTTPException, Request
-from fastapi.responses import Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
 import backend.admin_representatives as admin_reps
 from backend.reseller_profile import SESSION_COOKIE, connect_db
 from backend.xui_client import XUIClient
+from backend import backup_service
 
 router = APIRouter(prefix="/api/admin/settings", tags=["Admin Settings"])
 
@@ -28,7 +29,6 @@ PBKDF2_ROUNDS = 200_000
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_.@-]{3,64}$")
 HOST_RE = re.compile(r"^[A-Za-z0-9._:-]+$")
 SID_RE = re.compile(r"^[0-9a-fA-F]{0,32}$")
-MAX_RESTORE_BYTES = 128 * 1024 * 1024
 
 _SUB_PORT_CACHE: tuple[float, int] = (0.0, 0)
 
@@ -49,6 +49,21 @@ class CredentialsBody(BaseModel):
     current_password: str
     username: str
     new_password: str = ""
+
+
+class RestoreConnectionBody(BaseModel):
+    base_url: str = ""
+    api_token: str = ""
+    username: str = ""
+    password: str = ""
+    verify_tls: bool = False
+    default_inbound_ids: str = ""
+
+
+class RestoreApplyBody(BaseModel):
+    restore_token: str = Field(min_length=20, max_length=200)
+    connection_mode: str = Field(pattern=r"^(backup|current|new)$")
+    connection: RestoreConnectionBody | None = None
 
 
 def _now() -> str:
@@ -364,42 +379,6 @@ def _hash_password(password: str) -> str:
     return f"pbkdf2_sha256${salt}${digest}"
 
 
-def _db_backup_bytes() -> bytes:
-    fd, name = tempfile.mkstemp(prefix="xui-panel-backup-", suffix=".sqlite3")
-    os.close(fd)
-    try:
-        with connect_db() as src, sqlite3.connect(name) as dst:
-            src.backup(dst)
-        return Path(name).read_bytes()
-    finally:
-        with contextlib.suppress(Exception):
-            os.unlink(name)
-
-
-def _validate_restore_db(path: str) -> None:
-    with sqlite3.connect(path) as con:
-        integrity = con.execute("PRAGMA integrity_check").fetchone()
-        if not integrity or str(integrity[0]).lower() != "ok":
-            raise HTTPException(status_code=400, detail="Backup database failed integrity check")
-        tables = {
-            str(row[0])
-            for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
-        }
-        required = {"admins", "representatives", "auth_sessions"}
-        missing = sorted(required - tables)
-        if missing:
-            raise HTTPException(status_code=400, detail="Backup is missing required tables: " + ", ".join(missing))
-
-
-def _save_pre_restore_backup() -> str:
-    data = _db_backup_bytes()
-    base = Path(__file__).resolve().parent / "data" / "backups"
-    base.mkdir(parents=True, exist_ok=True)
-    path = base / f"before-restore-{datetime.now().strftime('%Y%m%d-%H%M%S')}.sqlite3"
-    path.write_bytes(data)
-    return str(path)
-
-
 @router.get("")
 def get_admin_settings(xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
     admin = _require_admin(xui_session)
@@ -425,6 +404,7 @@ def get_admin_settings(xui_session: str | None = Cookie(default=None, alias=SESS
             "effective_port": effective,
             "fallback_port": 2096,
         },
+        "xui_connection": backup_service.connection_summary(),
     }
 
 
@@ -507,50 +487,70 @@ def update_admin_credentials(body: CredentialsBody, xui_session: str | None = Co
 @router.get("/backup")
 def download_backup(xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
     _require_admin(xui_session)
-    data = _db_backup_bytes()
-    filename = f"xui-panel-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.sqlite3"
-    return Response(
-        content=data,
-        media_type="application/vnd.sqlite3",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    filename = f"xui-panel-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.xuibak"
+    fd, temp_name = tempfile.mkstemp(prefix="xui-panel-download-", suffix=".xuibak")
+    os.close(fd)
+    try:
+        backup_service.write_download_backup(Path(temp_name))
+    except RuntimeError as exc:
+        with contextlib.suppress(OSError):
+            Path(temp_name).unlink()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception:
+        with contextlib.suppress(OSError):
+            Path(temp_name).unlink()
+        raise
+    return FileResponse(
+        path=temp_name,
+        filename=filename,
+        media_type="application/zip",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+        background=BackgroundTask(lambda: Path(temp_name).unlink(missing_ok=True)),
     )
 
 
-@router.post("/restore")
-async def restore_backup(request: Request, xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
-    _require_admin(xui_session)
-    payload = await request.body()
-    if not payload:
-        raise HTTPException(status_code=400, detail="Backup file is empty")
-    if len(payload) > MAX_RESTORE_BYTES:
-        raise HTTPException(status_code=413, detail="Backup file is too large")
-    if not payload.startswith(b"SQLite format 3\x00"):
-        raise HTTPException(status_code=400, detail="Only SQLite backup files created by this panel are accepted")
-
-    fd, temp_name = tempfile.mkstemp(prefix="xui-restore-", suffix=".sqlite3")
+@router.post("/restore/inspect")
+async def inspect_restore(request: Request, xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
+    admin = _require_admin(xui_session)
+    fd, temp_name = tempfile.mkstemp(prefix="xui-restore-upload-", suffix=".upload")
     os.close(fd)
+    total = 0
     try:
-        Path(temp_name).write_bytes(payload)
-        _validate_restore_db(temp_name)
-        safe_copy = _save_pre_restore_backup()
-
-        with sqlite3.connect(temp_name) as source, connect_db() as target:
-            source.backup(target)
-            target.commit()
-
-        # Recreate optional columns/settings if the backup came from an older version.
-        admin_reps.ensure_admin_schema()
-        ensure_settings_schema()
-        with connect_db() as con:
-            # Restored sessions may be stale. Force a clean login after restore.
-            con.execute("DELETE FROM auth_sessions")
-            con.commit()
-
-        return {
-            "ok": True,
-            "relogin_required": True,
-            "safety_backup": Path(safe_copy).name,
-        }
-    finally:
-        with contextlib.suppress(Exception):
+        with open(temp_name, "wb") as output:
+            async for chunk in request.stream():
+                total += len(chunk)
+                if total > backup_service.MAX_RESTORE_BYTES:
+                    raise HTTPException(status_code=413, detail="Backup file is too large")
+                output.write(chunk)
+        if total <= 0:
+            raise HTTPException(status_code=400, detail="Backup file is empty")
+        try:
+            result = backup_service.stage_backup(Path(temp_name), int(admin["id"]))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, **result}
+    except Exception:
+        with contextlib.suppress(OSError):
             os.unlink(temp_name)
+        raise
+
+
+@router.post("/restore/apply")
+def restore_backup(body: RestoreApplyBody, xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
+    admin = _require_admin(xui_session)
+    if body.connection_mode == "new" and body.connection is None:
+        raise HTTPException(status_code=400, detail="New X-UI connection settings are required")
+    try:
+        return backup_service.apply_restore(
+            token=body.restore_token,
+            admin_id=int(admin["id"]),
+            connection_mode=body.connection_mode,  # type: ignore[arg-type]
+            new_connection=body.connection.model_dump() if body.connection else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc

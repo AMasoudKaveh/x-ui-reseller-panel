@@ -74,6 +74,13 @@ def read_env_file() -> dict[str, str]:
 ENV = read_env_file()
 
 
+def reload_env_file() -> dict[str, str]:
+    """Reload file-backed settings after an in-app restore/change."""
+    global ENV
+    ENV = read_env_file()
+    return dict(ENV)
+
+
 def env_string(
     key: str,
     default: str = "",
@@ -251,16 +258,37 @@ class XUIClient:
 
     def __init__(
         self,
+        *,
+        base_url: str | None = None,
+        api_token: str | None = None,
+        username: str | None = None,
+        password: str | None = None,
+        verify_tls: bool | None = None,
+        default_inbound_ids: list[int] | None = None,
     ) -> None:
 
-        if not XUI_BASE_URL:
+        # Read the env file for every newly-created client. This makes restored
+        # X-UI credentials effective immediately without restarting FastAPI.
+        reload_env_file()
+        self.base_url = (base_url if base_url is not None else env_string("XUI_BASE_URL")).rstrip("/")
+        self.api_token = api_token if api_token is not None else env_string("XUI_API_TOKEN")
+        self.username = username if username is not None else env_string("XUI_USERNAME")
+        self.password = password if password is not None else env_string("XUI_PASSWORD")
+        self.verify_tls = bool(verify_tls if verify_tls is not None else env_bool("XUI_VERIFY_TLS", False))
+        self.default_inbound_ids = list(
+            default_inbound_ids
+            if default_inbound_ids is not None
+            else int_list(env_string("DEFAULT_INBOUND_IDS"))
+        )
+
+        if not self.base_url:
 
             raise XUIError(
                 "XUI_BASE_URL is not configured in backend/.env"
             )
 
         self.base = (
-            XUI_BASE_URL
+            self.base_url
             .rstrip("/")
         )
 
@@ -269,23 +297,23 @@ class XUIClient:
         )
 
         self.session.verify = (
-            XUI_VERIFY_TLS
+            self.verify_tls
         )
 
         self.logged_in = False
 
-        if XUI_API_TOKEN:
+        if self.api_token:
 
             self.session.headers.update(
                 {
                     "Authorization":
-                        f"Bearer {XUI_API_TOKEN}",
+                        f"Bearer {self.api_token}",
 
                     "X-API-Token":
-                        XUI_API_TOKEN,
+                        self.api_token,
 
                     "X-Token":
-                        XUI_API_TOKEN,
+                        self.api_token,
                 }
             )
 
@@ -294,16 +322,16 @@ class XUIClient:
         self,
     ) -> None:
 
-        if XUI_API_TOKEN:
+        if self.api_token:
 
             self.logged_in = True
             return
 
 
         if (
-            not XUI_USERNAME
+            not self.username
             or
-            not XUI_PASSWORD
+            not self.password
         ):
 
             raise XUIError(
@@ -322,18 +350,18 @@ class XUIClient:
             for payload in (
                 {
                     "username":
-                        XUI_USERNAME,
+                        self.username,
 
                     "password":
-                        XUI_PASSWORD,
+                        self.password,
                 },
 
                 {
                     "userName":
-                        XUI_USERNAME,
+                        self.username,
 
                     "password":
-                        XUI_PASSWORD,
+                        self.password,
                 },
             ):
 
@@ -344,7 +372,7 @@ class XUIClient:
                             self.base + path,
                             json=payload,
                             timeout=20,
-                            verify=XUI_VERIFY_TLS,
+                            verify=self.verify_tls,
                         )
                     )
 
@@ -373,13 +401,13 @@ class XUIClient:
                     self.base + "/login",
                     data={
                         "username":
-                            XUI_USERNAME,
+                            self.username,
 
                         "password":
-                            XUI_PASSWORD,
+                            self.password,
                     },
                     timeout=20,
-                    verify=XUI_VERIFY_TLS,
+                    verify=self.verify_tls,
                 )
             )
 
@@ -419,7 +447,7 @@ class XUIClient:
         if (
             not self.logged_in
             and
-            not XUI_API_TOKEN
+            not self.api_token
         ):
             self.login()
 
@@ -436,7 +464,7 @@ class XUIClient:
                 method,
                 url,
                 timeout=30,
-                verify=XUI_VERIFY_TLS,
+                verify=self.verify_tls,
                 **kwargs,
             )
         )
@@ -446,7 +474,7 @@ class XUIClient:
             response.status_code
             in (401, 403)
             and
-            not XUI_API_TOKEN
+            not self.api_token
         ):
 
             self.logged_in = False
@@ -458,7 +486,7 @@ class XUIClient:
                     method,
                     url,
                     timeout=30,
-                    verify=XUI_VERIFY_TLS,
+                    verify=self.verify_tls,
                     **kwargs,
                 )
             )
@@ -805,7 +833,7 @@ class XUIClient:
         if not ids:
 
             ids = list(
-                DEFAULT_INBOUND_IDS
+                self.default_inbound_ids
             )
 
 

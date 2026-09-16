@@ -38,6 +38,7 @@ import {
 import {
   useLanguage
 } from "../i18n/LanguageProvider";
+import { TelegramIcon, TELEGRAM_CHANNEL_URL } from "./TelegramChannelLink";
 
 
 type Props = {
@@ -394,6 +395,17 @@ export default function Sidebar({
 
       </nav>
 
+      <a
+        className="telegram-mobile-link"
+        href={TELEGRAM_CHANNEL_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={t("sidebar.telegramChannel")}
+        aria-label={t("sidebar.telegramChannel")}
+      >
+        <TelegramIcon />
+      </a>
+
 
       <div className="sidebar-spacer" />
 
@@ -432,6 +444,17 @@ export default function Sidebar({
           </svg>
 
           <span>{t("sidebar.githubProject")}</span>
+        </a>
+
+        <a
+          className="telegram-channel-link"
+          href={TELEGRAM_CHANNEL_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={t("sidebar.telegramChannel")}
+        >
+          <span className="telegram-channel-icon"><TelegramIcon /></span>
+          <span>{t("sidebar.telegramChannel")}</span>
         </a>
 
 

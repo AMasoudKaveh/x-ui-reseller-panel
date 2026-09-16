@@ -433,9 +433,24 @@ The panel updates the Nginx configuration automatically.
 
 ---
 
-# Backup
+# Full Backup and Restore
 
-To create a backup of the local panel database:
+The Admin Settings page can download a versioned `.xuibak` package containing
+the complete local SQLite state (administrators, representatives, clients,
+traffic/accounting data, API keys and settings) plus the X-UI connection
+configuration. Treat this file as a secret because it contains credentials.
+
+Restore is a two-step operation: the package is checked first, then the admin
+chooses whether to use the X-UI connection saved in the backup, keep the
+connection configured on the destination server, or validate and save a new
+X-UI URL/API token. The primary X-UI database must be restored separately.
+
+Before applying a restore, the panel creates a safety snapshot. It blocks other
+API operations during the short restore window, invalidates old sessions,
+applies schema migrations, runs SQLite integrity checks and rolls back the
+database and environment configuration if validation fails.
+
+To create a legacy database-only backup from the server menu:
 
 ```bash
 xui-panel
@@ -447,7 +462,7 @@ Select:
 7
 ```
 
-It is recommended to create backups before major updates or server changes.
+It is recommended to download a full `.xuibak` package before server changes.
 
 ---
 
@@ -469,11 +484,19 @@ This rebuilds the frontend and restarts the required services.
 
 ---
 
-# Updating from GitHub
+# Safe Updates from GitHub Releases
 
 Because the repository is public, installed servers can update directly from GitHub without SSH keys or Deploy Keys.
 
-Run:
+The Admin Overview checks the official GitHub Releases endpoint every six
+hours. When a newer semantic version is available, it shows the release notes
+and the exact update command. Run that command over SSH as root, for example:
+
+```bash
+sudo xui-panel --update v1.2.0
+```
+
+You can also use the interactive menu:
 
 ```bash
 xui-panel
@@ -485,13 +508,18 @@ Select:
 9
 ```
 
-The updater pulls the latest version from:
+The updater accepts only semantic release tags from the official repository:
 
 ```text
 https://github.com/AMasoudKaveh/x-ui-reseller-panel
 ```
 
-and rebuilds the frontend.
+Before updating it refuses tracked local modifications, takes a full backup,
+uses a cross-process maintenance lock, requires a fast-forward Git update,
+reinstalls dependencies, rebuilds the frontend, checks Nginx and the backend
+health endpoint, and rolls the application/database back if a step fails. The
+latest ten automatic full update backups are retained in
+`/var/backups/xui-reseller-panel`.
 
 To check the currently installed Git revision:
 
@@ -500,16 +528,8 @@ cd /opt/xui-reseller-panel
 git log --oneline -1
 ```
 
-If needed, you can also update manually:
-
-```bash
-cd /opt/xui-reseller-panel
-git pull origin main
-npm ci
-npm run build
-systemctl restart xui-reseller-panel
-nginx -t && systemctl reload nginx
-```
+Direct `git pull` updates are not recommended because they bypass backup,
+health-check and rollback protections.
 
 ---
 

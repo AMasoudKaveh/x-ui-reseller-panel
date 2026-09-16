@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from backend.reseller_profile import SESSION_COOKIE, connect_db, get_reseller_from_session
 from backend.reseller_users import ensure_users_schema
 from backend.reseller_create_user import allowed_inbound_ids, expiry_to_ms, gb_to_bytes, normalize_inbound_ids, resolve_expiry_ms
-from backend.xui_client import XUI_BASE_URL, XUIClient, XUIError, env_bool, env_string
+from backend.xui_client import XUIClient, XUIError, env_bool, env_string
 
 router = APIRouter(prefix="/api/reseller", tags=["Reseller User Actions"])
 
@@ -288,9 +288,10 @@ def subscription_url(all_links: list[str], sub_id: str) -> str:
     base = env_string("PUBLIC_SUB_BASE_URL").rstrip("/")
     if base and sub_id:
         return base + "/sub/" + quote(sub_id, safe="")
-    if XUI_BASE_URL and sub_id:
+    xui_base_url = env_string("XUI_BASE_URL").rstrip("/")
+    if xui_base_url and sub_id:
         with contextlib.suppress(Exception):
-            p = urlsplit(XUI_BASE_URL)
+            p = urlsplit(xui_base_url)
             if p.scheme and p.netloc:
                 return f"{p.scheme}://{p.netloc}/sub/" + quote(sub_id, safe="")
     return ""

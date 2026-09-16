@@ -19,6 +19,7 @@ const en = {
 
   "sidebar.supportUs": "Support Us",
   "sidebar.githubProject": "GitHub Project",
+  "sidebar.telegramChannel": "Open Source Lab",
 
   "sidebar.switchLight": "Switch to light mode",
   "sidebar.switchDark": "Switch to dark mode",
@@ -63,6 +64,7 @@ const fa: Record<TranslationKey, string> = {
 
   "sidebar.supportUs": "پشتیبانی",
   "sidebar.githubProject": "پروژه GitHub",
+  "sidebar.telegramChannel": "کانال Open Source Lab",
 
   "sidebar.switchLight": "تغییر به حالت روشن",
   "sidebar.switchDark": "تغییر به حالت تاریک",

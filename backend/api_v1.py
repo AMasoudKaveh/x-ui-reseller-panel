@@ -31,6 +31,7 @@ from fastapi.security import (
 from pydantic import BaseModel, Field
 
 from backend.api_rate_limit import enforce_api_rate_limit
+from backend.version import app_version
 
 from backend.reseller_profile import (
     SESSION_COOKIE,
@@ -1905,7 +1906,7 @@ def public_api_openapi(
 ):
     schema = get_openapi(
         title="X-UI Reseller Public API",
-        version="1.0.0",
+        version=app_version(),
         description=(
             "Public API for reseller integrations. "
             "Authenticate using Authorization: "

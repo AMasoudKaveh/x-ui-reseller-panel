@@ -15,6 +15,31 @@ export type AdminSettingsData = {
     effective_port: number;
     fallback_port: number;
   };
+  xui_connection: {
+    base_url: string;
+    auth_mode: string;
+  };
+};
+
+export type RestoreInspection = {
+  restore_token: string;
+  legacy: boolean;
+  app_version: string | null;
+  created_at: string | null;
+  tables: string[];
+  row_counts: Record<string, number>;
+  has_backup_connection: boolean;
+  backup_xui_url: string;
+  expires_in_seconds: number;
+};
+
+export type RestoreConnection = {
+  base_url: string;
+  api_token: string;
+  username?: string;
+  password?: string;
+  verify_tls: boolean;
+  default_inbound_ids?: string;
 };
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -91,8 +116,8 @@ export async function downloadAdminBackup(): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
-export async function restoreAdminBackup(file: File): Promise<{relogin_required: boolean; safety_backup?: string}> {
-  const response = await fetch("/api/admin/settings/restore", {
+export async function inspectAdminBackup(file: File): Promise<RestoreInspection> {
+  const response = await fetch("/api/admin/settings/restore/inspect", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/octet-stream" },
@@ -101,6 +126,17 @@ export async function restoreAdminBackup(file: File): Promise<{relogin_required:
   const text = await response.text();
   let data: any = {};
   try { data = text ? JSON.parse(text) : {}; } catch {}
-  if (!response.ok) throw new Error(data?.detail || `Restore failed (${response.status})`);
+  if (!response.ok) throw new Error(data?.detail || `Backup inspection failed (${response.status})`);
   return data;
+}
+
+export async function restoreAdminBackup(input: {
+  restore_token: string;
+  connection_mode: "backup" | "current" | "new";
+  connection?: RestoreConnection;
+}): Promise<{relogin_required: boolean; safety_backup?: string; xui_url?: string}> {
+  return api("/api/admin/settings/restore/apply", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
 }

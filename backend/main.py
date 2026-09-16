@@ -8,10 +8,12 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Cookie, FastAPI, HTTPException, Response
+from fastapi import Cookie, FastAPI, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from backend.xui_client import env_bool, env_string
+from backend.version import app_version
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -280,9 +282,22 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="x-ui Local Auth API",
-    version="1.0.0",
+    version=app_version(),
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def block_requests_during_restore(request: Request, call_next):
+    from backend.backup_service import restore_in_progress
+    path = request.url.path
+    if restore_in_progress() and not path.startswith("/api/admin/settings/restore") and path != "/api/health":
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Panel restore is in progress; retry in a moment"},
+            headers={"Retry-After": "5"},
+        )
+    return await call_next(request)
 
 
 @app.get("/api/health")
@@ -624,6 +639,10 @@ from backend.admin_settings import (
 app.include_router(
     admin_settings_router
 )
+
+from backend.system_updates import router as system_updates_router
+
+app.include_router(system_updates_router)
 # === END ADMIN SETTINGS ROUTER ===
 
 # === PUBLIC API V1 ===

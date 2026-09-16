@@ -11,6 +11,8 @@ NGINX_SITE="/etc/nginx/sites-available/${SERVICE_NAME}"
 NGINX_LINK="/etc/nginx/sites-enabled/${SERVICE_NAME}"
 INTERNAL_PORT=8000
 BACKUP_DIR="/var/backups/xui-reseller-panel"
+UPDATE_LOCK="/run/lock/xui-reseller-panel-maintenance.lock"
+UPDATE_STATE="$BACKEND_DIR/data/update-state.json"
 
 if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
   echo "Run with sudo/root: sudo xui-panel"
@@ -73,7 +75,7 @@ server {
 
     root $APP_DIR/dist;
     index index.html;
-    client_max_body_size 100M;
+    client_max_body_size 520M;
 
     location /api/ {
         proxy_pass http://127.0.0.1:$INTERNAL_PORT;
@@ -352,6 +354,41 @@ PY
   echo "Backup created: $out"
 }
 
+backup_full() {
+  mkdir -p "$BACKUP_DIR"
+  local out
+  out="$BACKUP_DIR/xui-panel-full-$(date -u +%Y%m%dT%H%M%SZ).xuibak"
+  PYTHONPATH="$APP_DIR" "$VENV/bin/python" - "$out" <<'PY'
+from pathlib import Path
+import sys
+from backend.backup_service import write_backup_package
+path = Path(sys.argv[1])
+write_backup_package(path)
+for old in sorted(path.parent.glob("xui-panel-full-*.xuibak"), key=lambda item: item.stat().st_mtime, reverse=True)[10:]:
+    old.unlink(missing_ok=True)
+PY
+  chmod 600 "$out"
+  printf '%s' "$out"
+}
+
+write_update_state() {
+  local status="$1" tag="${2:-}" message="${3:-}" commit="${4:-}"
+  mkdir -p "$(dirname "$UPDATE_STATE")"
+  python3 - "$UPDATE_STATE" "$status" "$tag" "$message" "$commit" <<'PY'
+from datetime import datetime, timezone
+from pathlib import Path
+import json, sys
+path, status, tag, message, commit = sys.argv[1:]
+Path(path).write_text(json.dumps({
+    "status": status,
+    "tag": tag,
+    "message": message,
+    "commit": commit,
+    "updated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+}, ensure_ascii=False), encoding="utf-8")
+PY
+}
+
 rebuild_frontend() {
   cd "$APP_DIR"
   npm ci
@@ -362,18 +399,97 @@ rebuild_frontend() {
 }
 
 update_from_git() {
+  local requested="${1:-}" old_commit target_ref target_commit safety_backup origin_url
   if [[ ! -d "$APP_DIR/.git" ]]; then
     echo "This installation is not a Git checkout."
     return 1
   fi
+  if [[ -n "$requested" && ! "$requested" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([+-][A-Za-z0-9.-]+)?$ ]]; then
+    echo "Invalid release tag."
+    return 1
+  fi
+  mkdir -p "$(dirname "$UPDATE_LOCK")"
+  exec 9>"$UPDATE_LOCK"
+  if ! flock -n 9; then
+    echo "Another update is already running."
+    return 1
+  fi
   cd "$APP_DIR"
-  git -c http.version=HTTP/1.1 pull --ff-only
-  "$VENV/bin/pip" install -r "$BACKEND_DIR/requirements.txt"
-  npm ci
-  npm run build
-  systemctl restart "$SERVICE_NAME"
-  nginx -t && systemctl reload nginx
-  echo "Update complete."
+  origin_url="$(git remote get-url origin 2>/dev/null || true)"
+  case "$origin_url" in
+    https://github.com/AMasoudKaveh/x-ui-reseller-panel|https://github.com/AMasoudKaveh/x-ui-reseller-panel.git|git@github.com:AMasoudKaveh/x-ui-reseller-panel.git) ;;
+    *) echo "Refusing update: origin is not the official repository."; return 1 ;;
+  esac
+  if ! git diff --quiet || ! git diff --cached --quiet; then
+    echo "Tracked local changes exist. Commit or revert them before updating."
+    return 1
+  fi
+
+  old_commit="$(git rev-parse HEAD)"
+  write_update_state running "$requested" "Creating safety backup" "$old_commit"
+  safety_backup="$(backup_full)" || {
+    write_update_state failed "$requested" "Safety backup failed" "$old_commit"
+    return 1
+  }
+
+  echo "Safety backup: $safety_backup"
+  write_update_state running "$requested" "Fetching official release" "$old_commit"
+  if ! git -c http.version=HTTP/1.1 fetch --tags --prune origin; then
+    write_update_state failed "$requested" "Git fetch failed" "$old_commit"
+    return 1
+  fi
+  target_ref="${requested:-origin/main}"
+  if ! target_commit="$(git rev-parse --verify "${target_ref}^{commit}")"; then
+    write_update_state failed "$requested" "Release tag was not found" "$old_commit"
+    return 1
+  fi
+  if ! git merge-base --is-ancestor "$old_commit" "$target_commit"; then
+    write_update_state failed "$requested" "Release is not a fast-forward update" "$old_commit"
+    echo "Refusing a non-fast-forward update."
+    return 1
+  fi
+
+  update_failed=0
+  git merge --ff-only "$target_commit" || update_failed=1
+  (( update_failed == 0 )) && "$VENV/bin/pip" install -r "$BACKEND_DIR/requirements.txt" || update_failed=1
+  (( update_failed == 0 )) && npm ci || update_failed=1
+  (( update_failed == 0 )) && npm run build || update_failed=1
+  (( update_failed == 0 )) && nginx -t || update_failed=1
+  (( update_failed == 0 )) && systemctl restart "$SERVICE_NAME" || update_failed=1
+  if (( update_failed == 0 )); then
+    ready=0
+    for _ in $(seq 1 30); do
+      if curl -fsS "http://127.0.0.1:$INTERNAL_PORT/api/health" >/dev/null 2>&1; then
+        ready=1
+        break
+      fi
+      sleep 1
+    done
+    (( ready == 1 )) || update_failed=1
+  fi
+
+  if (( update_failed != 0 )); then
+    echo "Update failed; rolling back to $old_commit"
+    write_update_state rolling_back "$requested" "Restoring previous application version" "$old_commit"
+    systemctl stop "$SERVICE_NAME" || true
+    git reset --hard "$old_commit"
+    "$VENV/bin/pip" install -r "$BACKEND_DIR/requirements.txt" || true
+    npm ci || true
+    npm run build || true
+    PYTHONPATH="$APP_DIR" "$VENV/bin/python" - "$safety_backup" <<'PY' || true
+from pathlib import Path
+import sys
+from backend.backup_service import restore_database_from_package_for_rollback
+restore_database_from_package_for_rollback(Path(sys.argv[1]))
+PY
+    systemctl restart "$SERVICE_NAME" || true
+    write_update_state failed "$requested" "Update failed and application rollback was attempted. Database safety backup: $safety_backup" "$old_commit"
+    return 1
+  fi
+
+  systemctl reload nginx
+  write_update_state completed "$requested" "Update completed successfully. Safety backup: $safety_backup" "$target_commit"
+  echo "Update complete: $target_commit"
 }
 
 uninstall_panel() {
@@ -404,6 +520,11 @@ uninstall_panel() {
   echo "Panel removed."
   exit 0
 }
+
+if [[ "${1:-}" == "--update" || "${1:-}" == "--update-noninteractive" ]]; then
+  update_from_git "${2:-}"
+  exit $?
+fi
 
 while true; do
   clear || true

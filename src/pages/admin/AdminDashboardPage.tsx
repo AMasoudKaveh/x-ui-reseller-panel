@@ -1,10 +1,12 @@
-import { Database, Network, ShieldCheck, UsersRound, Wifi } from "lucide-react";
+import { Check, Copy, Database, ExternalLink, Network, RefreshCcw, ShieldCheck, UsersRound, Wifi } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { AdminPage } from "../../components/AdminSidebar";
 import {
   getAdminDashboard,
   type AdminDashboardData,
 } from "../../api/adminDashboard";
+import { getSystemUpdateStatus, type SystemUpdateStatus } from "../../api/systemUpdates";
+import { copyTextToClipboard } from "../../utils/clipboard";
 
 const GB = 1024 ** 3;
 
@@ -46,6 +48,9 @@ function dayLabel(value: string): string {
 
 export default function AdminDashboardPage({ onNavigate }: { onNavigate: (page: AdminPage) => void }) {
   const [dashboard, setDashboard] = useState<AdminDashboardData>(emptyDashboard);
+  const [update, setUpdate] = useState<SystemUpdateStatus | null>(null);
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [commandCopied, setCommandCopied] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -77,6 +82,26 @@ export default function AdminDashboardPage({ onNavigate }: { onNavigate: (page: 
       document.removeEventListener("visibilitychange", visibility);
     };
   }, []);
+
+  const loadUpdate = async (refresh = false) => {
+    setUpdateChecking(true);
+    try { setUpdate(await getSystemUpdateStatus(refresh)); }
+    catch { /* Dashboard remains usable when GitHub is unavailable. */ }
+    finally { setUpdateChecking(false); }
+  };
+
+  useEffect(() => {
+    void loadUpdate(false);
+    const timer = window.setInterval(() => void loadUpdate(false), 6 * 60 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const copyUpdateCommand = async () => {
+    if (!update?.update_command) return;
+    const copied = await copyTextToClipboard(update.update_command);
+    setCommandCopied(copied);
+    window.setTimeout(() => setCommandCopied(false), 1600);
+  };
 
   const summary = dashboard.summary;
   const quotaGB = bytesToGB(summary.quota_bytes);
@@ -110,6 +135,11 @@ export default function AdminDashboardPage({ onNavigate }: { onNavigate: (page: 
       </header>
 
       <main className="ad-page">
+        {update ? <section className={`ad-update-card ${update.available ? "available" : "current"}`}>
+          <div className="ad-update-icon">{update.available || update.check_error ? <RefreshCcw size={21}/> : <Check size={21}/>}</div>
+          <div className="ad-update-copy"><div><h2>{update.check_error ? "Update status unavailable" : update.available ? `Update ${update.latest_version} is available` : "Panel is up to date"}</h2><span>Installed {update.current_version}{update.current_commit ? ` · ${update.current_commit.slice(0,7)}` : ""}</span></div>{update.available && update.changelog ? <p>{update.changelog.slice(0,280)}</p> : update.check_error ? <p>Last online check failed: {update.check_error}</p> : update.update_state?.status === "failed" ? <p>Last update failed: {update.update_state.message || "check the server update log"}</p> : update.message ? <p>{update.message}</p> : null}</div>
+          <div className="ad-update-actions"><button type="button" disabled={updateChecking} onClick={()=>void loadUpdate(true)} title="Check again"><RefreshCcw size={16}/></button>{update.available ? <><button type="button" className="primary" onClick={()=>void copyUpdateCommand()}>{commandCopied?<Check size={16}/>:<Copy size={16}/>} {commandCopied?"Copied":"Copy safe update command"}</button><a href={update.release_url} target="_blank" rel="noreferrer"><ExternalLink size={16}/></a></> : null}</div>
+        </section> : null}
         <section className="ad-stats-grid">
           {cards.map(({icon:Icon,title,value,meta}) => (
             <article className="ad-stat-card" key={title}>

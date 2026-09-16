@@ -227,6 +227,43 @@
   flex: 0 0 18px;
 }
 
+.telegram-channel-link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: fit-content;
+  margin-top: 9px;
+  color: inherit;
+  opacity: .78;
+  font-size: 13px;
+  text-decoration: none;
+  transition: opacity .18s ease, color .18s ease;
+}
+
+.telegram-channel-link:hover {
+  color: #2aabee;
+  opacity: 1;
+}
+
+.telegram-channel-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 18px;
+  color: #2aabee;
+}
+
+.telegram-channel-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.telegram-mobile-link {
+  display: none;
+}
+
 /* MOBILE_ACCOUNT_PANEL_V2
    Restore reseller account / quota information on phones
 */
@@ -258,6 +295,29 @@
     height: 50px !important;
 
     margin: 0 !important;
+  }
+
+  .sidebar .telegram-mobile-link {
+    width: 50px !important;
+    height: 50px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex: 0 0 50px !important;
+    margin: 0 2px !important;
+    border-radius: 8px !important;
+    color: #2aabee !important;
+    text-decoration: none !important;
+  }
+
+  .sidebar .telegram-mobile-link:hover,
+  .sidebar .telegram-mobile-link:focus-visible {
+    background: color-mix(in srgb, #2aabee 16%, transparent) !important;
+  }
+
+  .sidebar .telegram-mobile-link svg {
+    width: 22px !important;
+    height: 22px !important;
   }
 
   /*

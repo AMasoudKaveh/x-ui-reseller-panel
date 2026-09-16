@@ -5,9 +5,9 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getLiveAdminInbounds, type LiveAdminInbound } from "../../api/adminInbounds";
 import {
-  downloadAdminBackup, getAdminSettings, removeConfigProxy, restoreAdminBackup,
+  downloadAdminBackup, getAdminSettings, inspectAdminBackup, removeConfigProxy, restoreAdminBackup,
   saveConfigProxy, saveSubscriptionProxy, updateAdminCredentials,
-  type AdminSettingsData, type ConfigProxyOverride
+  type AdminSettingsData, type ConfigProxyOverride, type RestoreInspection
 } from "../../api/adminSettings";
 import {
   type AccentColor, type UiMode, useThemeSettings
@@ -35,7 +35,8 @@ const colors: Array<{ id: AccentColor; title: string; swatch: string }> = [
 const EMPTY_SETTINGS: AdminSettingsData = {
   username: "",
   config_overrides: [],
-  subscription: { host: "", port: 0, detected_port: 0, effective_port: 2096, fallback_port: 2096 }
+  subscription: { host: "", port: 0, detected_port: 0, effective_port: 2096, fallback_port: 2096 },
+  xui_connection: { base_url: "", auth_mode: "token" }
 };
 
 function inboundName(inbound: LiveAdminInbound | undefined, id: number): string {
@@ -64,6 +65,11 @@ export default function AdminSettingsPage() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
+  const [restoreInspection, setRestoreInspection] = useState<RestoreInspection | null>(null);
+  const [restoreConnectionMode, setRestoreConnectionMode] = useState<"backup" | "current" | "new">("current");
+  const [restoreXuiUrl, setRestoreXuiUrl] = useState("");
+  const [restoreXuiToken, setRestoreXuiToken] = useState("");
+  const [restoreVerifyTls, setRestoreVerifyTls] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const showToast = (message: string) => {
@@ -185,10 +191,35 @@ export default function AdminSettingsPage() {
 
   const restore = async () => {
     if (!restoreFile || busy) return;
-    if (!window.confirm("Restore this backup? Current local panel data will be replaced and all sessions will be logged out.")) return;
     setBusy(true);
     try {
-      await restoreAdminBackup(restoreFile);
+      const inspected = await inspectAdminBackup(restoreFile);
+      setRestoreInspection(inspected);
+      setRestoreConnectionMode(inspected.has_backup_connection ? "backup" : "current");
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Backup inspection failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const applyRestore = async () => {
+    if (!restoreInspection || busy) return;
+    if (restoreConnectionMode === "new" && (!restoreXuiUrl.trim() || !restoreXuiToken.trim())) {
+      setError("New X-UI URL and API token are required");
+      return;
+    }
+    if (!window.confirm("Restore this backup now? Current local data will be replaced. A safety backup and automatic rollback are enabled.")) return;
+    setBusy(true);
+    try {
+      await restoreAdminBackup({
+        restore_token: restoreInspection.restore_token,
+        connection_mode: restoreConnectionMode,
+        connection: restoreConnectionMode === "new" ? {
+          base_url: restoreXuiUrl.trim(), api_token: restoreXuiToken.trim(), verify_tls: restoreVerifyTls
+        } : undefined
+      });
       showToast("Backup restored. Sign in again.");
       window.setTimeout(() => {
         window.location.hash = "#/admin/login";
@@ -264,10 +295,18 @@ export default function AdminSettingsPage() {
       {!loading && tab === "backup" ? <section className="settings-section">
         <div className="settings-section-title"><DatabaseBackup size={18}/><div><h2>Backup & Restore</h2><p>Admin-only backup of the local panel database.</p></div></div>
         <div className="admin-settings-two-cards">
-          <div className="admin-settings-card"><div className="admin-settings-card-title"><Download size={20}/><div><strong>Create Backup</strong><span>Representatives, client mappings, traffic ledger, admin settings and local state.</span></div></div><button className="admin-settings-primary" disabled={busy} onClick={()=>void downloadAdminBackup().then(()=>showToast("Backup downloaded")).catch(e=>setError(e instanceof Error?e.message:"Backup failed"))}><Download size={17}/>Download Backup</button></div>
-          <div className="admin-settings-card"><div className="admin-settings-card-title"><Upload size={20}/><div><strong>Restore Backup</strong><span>Restores the local panel DB. The primary x-ui database is not modified.</span></div></div><label className="admin-settings-file"><input type="file" accept=".sqlite,.sqlite3,.db,application/vnd.sqlite3" onChange={e=>setRestoreFile(e.target.files?.[0]||null)}/><span>{restoreFile?.name || "Choose backup file"}</span></label><button className="admin-settings-danger" disabled={busy||!restoreFile} onClick={()=>void restore()}><Upload size={17}/>Restore Backup</button></div>
+          <div className="admin-settings-card"><div className="admin-settings-card-title"><Download size={20}/><div><strong>Create Full Backup</strong><span>All local users, representatives, API keys, traffic/accounting state, settings and X-UI connection details.</span></div></div><button className="admin-settings-primary" disabled={busy} onClick={()=>void downloadAdminBackup().then(()=>showToast("Full backup downloaded")).catch(e=>setError(e instanceof Error?e.message:"Backup failed"))}><Download size={17}/>Download .xuibak</button></div>
+          <div className="admin-settings-card"><div className="admin-settings-card-title"><Upload size={20}/><div><strong>Inspect & Restore</strong><span>Use after restoring the primary x-ui backup. Legacy SQLite backups are also accepted.</span></div></div><label className="admin-settings-file"><input type="file" accept=".xuibak,.sqlite,.sqlite3,.db,application/zip,application/vnd.sqlite3" onChange={e=>{setRestoreFile(e.target.files?.[0]||null);setRestoreInspection(null)}}/><span>{restoreFile?.name || "Choose backup file"}</span></label><button className="admin-settings-danger" disabled={busy||!restoreFile} onClick={()=>void restore()}><Upload size={17}/>Inspect Backup</button></div>
         </div>
-        <div className="settings-note"><ShieldCheck size={17}/><span>Before every restore, the backend automatically creates a safety backup of the current local database. Restore logs out all sessions.</span></div>
+        {restoreInspection ? <div className="admin-restore-confirm">
+          <div className="admin-settings-card-title"><ShieldCheck size={20}/><div><strong>Backup verified — choose the X-UI connection</strong><span>Version {restoreInspection.app_version || "legacy"} · {restoreInspection.tables.length} tables · representatives {restoreInspection.row_counts.representatives || 0} · clients {restoreInspection.row_counts.clients || 0} · API keys {restoreInspection.row_counts.api_keys || 0}</span></div></div>
+          <label className={`admin-restore-choice ${restoreConnectionMode==="backup"?"selected":""}`}><input type="radio" name="restore-connection" disabled={!restoreInspection.has_backup_connection} checked={restoreConnectionMode==="backup"} onChange={()=>setRestoreConnectionMode("backup")}/><span><strong>Use connection saved in backup</strong><small>{restoreInspection.has_backup_connection ? restoreInspection.backup_xui_url : "Not available in this legacy backup"}</small></span></label>
+          <label className={`admin-restore-choice ${restoreConnectionMode==="current"?"selected":""}`}><input type="radio" name="restore-connection" checked={restoreConnectionMode==="current"} onChange={()=>setRestoreConnectionMode("current")}/><span><strong>Keep this server's current connection</strong><small>{settings.xui_connection.base_url || "Current X-UI URL is not configured"}</small></span></label>
+          <label className={`admin-restore-choice ${restoreConnectionMode==="new"?"selected":""}`}><input type="radio" name="restore-connection" checked={restoreConnectionMode==="new"} onChange={()=>setRestoreConnectionMode("new")}/><span><strong>Use a new X-UI URL and API token</strong><small>The connection is validated before any data is replaced.</small></span></label>
+          {restoreConnectionMode === "new" ? <div className="admin-settings-grid two admin-restore-fields"><label><span>Full X-UI URL</span><input value={restoreXuiUrl} onChange={e=>setRestoreXuiUrl(e.target.value)} placeholder="https://panel.example.com:2053/path"/></label><label><span>Admin API Token</span><input type="password" value={restoreXuiToken} onChange={e=>setRestoreXuiToken(e.target.value)} autoComplete="off"/></label><label className="admin-restore-tls"><input type="checkbox" checked={restoreVerifyTls} onChange={e=>setRestoreVerifyTls(e.target.checked)}/><span>Verify TLS certificate</span></label></div> : null}
+          <div className="admin-settings-actions"><button className="admin-settings-primary" disabled={busy} onClick={()=>void applyRestore()}><ShieldCheck size={17}/>Confirm & Restore</button></div>
+        </div> : null}
+        <div className="settings-note"><ShieldCheck size={17}/><span>Restore validates the package and X-UI connection first, creates a safety backup, migrates old schemas, runs a final integrity check, logs out all sessions and automatically rolls back on failure. Full .xuibak files contain X-UI credentials; store and transfer them securely.</span></div>
       </section> : null}
 
       {!loading && tab === "account" ? <section className="settings-section">
