@@ -23,6 +23,7 @@ from backend.reseller_profile import SESSION_COOKIE, connect_db
 from backend.xui_client import XUIClient, env_string
 from backend import backup_service
 from backend import subscription_proxy_config
+from backend.subscription_upstream import detect_xui_subscription_settings
 
 router = APIRouter(prefix="/api/admin/settings", tags=["Admin Settings"])
 
@@ -228,59 +229,39 @@ def _find_text_by_keys(value: Any, wanted: set[str]) -> str:
 
 
 def detect_panel_subscription_tls() -> tuple[str, str]:
-    xui = XUIClient()
-    endpoints = (
-        "/panel/api/setting/all",
-        "/panel/api/settings/all",
-        "/panel/api/setting/getAll",
-        "/panel/api/server/getConfigJson",
+    detected = detect_xui_subscription_settings()
+
+    return (
+        str(
+            detected.get(
+                "certificate_path"
+            )
+            or ""
+        ),
+        str(
+            detected.get(
+                "key_path"
+            )
+            or ""
+        ),
     )
-    cert_wanted = {"subcertfile", "subscriptioncertfile", "subcertificatefile"}
-    key_wanted = {"subkeyfile", "subscriptionkeyfile", "subprivatekeyfile"}
-    for endpoint in endpoints:
-        try:
-            data = xui.request("GET", endpoint)
-            certificate_path = _find_text_by_keys(data, cert_wanted)
-            key_path = _find_text_by_keys(data, key_wanted)
-            if certificate_path and key_path:
-                return certificate_path, key_path
-        except Exception:
-            continue
-    return "", ""
 
 
-def detect_panel_subscription_port(force: bool = False) -> int:
-    global _SUB_PORT_CACHE
-    now = time.monotonic()
-    cached_at, cached_port = _SUB_PORT_CACHE
-    if not force and cached_at and now - cached_at < 60:
-        return cached_port
-
-    wanted = {
-        "subport",
-        "subscriptionport",
-        "subwebport",
-        "sublistenport",
-        "subscriptionlistenport",
-    }
-    xui = XUIClient()
-    endpoints = (
-        "/panel/api/setting/all",
-        "/panel/api/settings/all",
-        "/panel/api/setting/getAll",
-        "/panel/api/server/getConfigJson",
+def detect_panel_subscription_port(
+    force: bool = False,
+) -> int:
+    detected = detect_xui_subscription_settings(
+        force=force,
     )
-    detected = 0
-    for endpoint in endpoints:
-        try:
-            data = xui.request("GET", endpoint)
-            detected = _find_int_by_keys(data, wanted)
-            if detected:
-                break
-        except Exception:
-            continue
-    _SUB_PORT_CACHE = (now, detected)
-    return detected
+
+    with contextlib.suppress(Exception):
+        return int(
+            detected.get("port")
+            or 0
+        )
+
+    return 0
+
 
 
 def subscription_port_values() -> tuple[int, int, int]:
@@ -445,6 +426,7 @@ def get_admin_settings(xui_session: str | None = Cookie(default=None, alias=SESS
     admin = _require_admin(xui_session)
     ensure_settings_schema()
     manual, detected, effective = subscription_port_values()
+    detected_subscription = detect_xui_subscription_settings()
     overrides = _config_overrides()
     return {
         "ok": True,
@@ -467,6 +449,11 @@ def get_admin_settings(xui_session: str | None = Cookie(default=None, alias=SESS
             "configured": bool(_get_setting("subscription_proxy_host", "").strip() and manual),
             "certificate_path": _get_setting("subscription_proxy_certificate_path", ""),
             "key_path": _get_setting("subscription_proxy_key_path", ""),
+            "detected_url": str(detected_subscription.get("base_url") or ""),
+            "detected_path": str(detected_subscription.get("path") or ""),
+            "detected_domain": str(detected_subscription.get("domain") or ""),
+            "detected_source": str(detected_subscription.get("source") or ""),
+            "detected_enabled": bool(detected_subscription.get("enabled")),
         },
         "xui_connection": backup_service.connection_summary(),
     }

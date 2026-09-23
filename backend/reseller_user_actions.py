@@ -18,6 +18,7 @@ from backend.reseller_profile import SESSION_COOKIE, connect_db, get_reseller_fr
 from backend.reseller_users import ensure_users_schema
 from backend.reseller_create_user import allowed_inbound_ids, expiry_to_ms, gb_to_bytes, normalize_inbound_ids, resolve_expiry_ms
 from backend.xui_client import XUIClient, XUIError, env_bool, env_string
+from backend.subscription_upstream import resolve_upstream_subscription_url
 
 router = APIRouter(prefix="/api/reseller", tags=["Reseller User Actions"])
 
@@ -273,7 +274,12 @@ def public_config_link(link: str, email: str, uid: str) -> str:
         return link
 
 
-def subscription_url(all_links: list[str], sub_id: str, proxy_base_url: str = "") -> str:
+def subscription_url(
+    all_links: list[str],
+    sub_id: str,
+    proxy_base_url: str = "",
+    xui: XUIClient | None = None,
+) -> str:
     # === ADMIN STEP 5 EXTERNAL PROXY OUTPUT ===
     # Admin external subscription settings take precedence over the private
     # x-ui panel URL. If unset, preserve the exact old fallback behavior.
@@ -285,6 +291,15 @@ def subscription_url(all_links: list[str], sub_id: str, proxy_base_url: str = ""
     for l in all_links:
         if l.lower().startswith(("http://", "https://")) and "/sub/" in l.lower():
             return l
+
+    with contextlib.suppress(Exception):
+        detected_url = resolve_upstream_subscription_url(
+            sub_id,
+            xui=xui,
+        )
+        if detected_url:
+            return detected_url
+
     base = env_string("PUBLIC_SUB_BASE_URL").rstrip("/")
     if base and sub_id:
         return base + "/sub/" + quote(sub_id, safe="")
@@ -336,7 +351,7 @@ def access_bundle(xui: XUIClient, local: dict, proxy_base_url: str = "") -> dict
                 from backend.admin_settings import rewrite_client_config
                 rewritten = rewrite_client_config(link, attached_ids, xui)
             configs.append(rewritten if rewritten else link)
-    sub_url = subscription_url(all_links, sub_id, proxy_base_url)
+    sub_url = subscription_url(all_links, sub_id, proxy_base_url, xui=xui)
     return {
         "username": email,
         "uuid": uid,

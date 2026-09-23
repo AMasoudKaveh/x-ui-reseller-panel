@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from backend.reseller_profile import connect_db, ensure_profile_schema, normalize_subscription_brand
 from backend.reseller_users import ensure_users_schema
 from backend.xui_client import XUIClient
+from backend.subscription_upstream import resolve_upstream_subscription_url
 
 
 router = APIRouter(tags=["Subscriptions"])
@@ -107,7 +108,21 @@ def _upstream_subscription_url(client: dict, sub_id: str, xui: XUIClient) -> str
             if _is_matching_subscription_url(link, sub_id):
                 return link
 
-    raise HTTPException(status_code=502, detail="Original x-ui subscription URL was not found")
+    # Newer x-ui versions may not expose the original subscription URL
+    # through the client links API. Detect the real subscription service
+    # from x-ui settings instead. No x-ui setting is modified here.
+    detected_url = resolve_upstream_subscription_url(
+        sub_id,
+        xui=xui,
+    )
+
+    if detected_url:
+        return detected_url
+
+    raise HTTPException(
+        status_code=502,
+        detail="Original x-ui subscription URL was not found",
+    )
 
 
 def _forward_query(upstream_url: str, request: Request) -> str:

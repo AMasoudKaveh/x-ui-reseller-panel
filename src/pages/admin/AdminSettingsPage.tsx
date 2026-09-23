@@ -37,7 +37,9 @@ const EMPTY_SETTINGS: AdminSettingsData = {
   config_overrides: [],
   subscription: {
     host: "", port: 0, detected_port: 0, effective_port: 0, fallback_port: 0,
-    configured: false, certificate_path: "", key_path: ""
+    configured: false, certificate_path: "", key_path: "",
+    detected_url: "", detected_path: "", detected_domain: "",
+    detected_source: "", detected_enabled: false
   },
   xui_connection: { base_url: "", auth_mode: "token" }
 };
@@ -304,8 +306,9 @@ export default function AdminSettingsPage() {
               <label><span>TLS Private Key Path</span><input value={subKeyPath} onChange={e=>setSubKeyPath(e.target.value)} placeholder="Blank = detect from x-ui"/></label>
             </div>
             <div className="admin-settings-port-note">
-              x-ui upstream port: <strong>{settings.subscription.detected_port || "not detected"}</strong>
-              {settings.subscription.configured ? <> · Public proxy: <strong>{settings.subscription.host}:{settings.subscription.port}</strong></> : <> · Public proxy is not configured</>}
+              Detected x-ui Subscription: <strong>{settings.subscription.detected_url || "not detected"}</strong>
+              {settings.subscription.detected_source ? <> ? <span>{settings.subscription.detected_source}</span></> : null}
+              {settings.subscription.configured ? <> ? Public proxy: <strong>{settings.subscription.host}:{settings.subscription.port}</strong></> : <> ? Public proxy is not configured</>}
             </div>
             <div className="admin-settings-actions"><button className="admin-settings-primary" disabled={busy} onClick={()=>void saveSub()}><Save size={17}/>{subHost.trim() || subPort ? "Apply Subscription Proxy" : "Disable Subscription Proxy"}</button></div>
           </div>

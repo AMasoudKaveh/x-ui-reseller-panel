@@ -17,6 +17,11 @@ export type AdminSettingsData = {
     configured: boolean;
     certificate_path: string;
     key_path: string;
+    detected_url: string;
+    detected_path: string;
+    detected_domain: string;
+    detected_source: string;
+    detected_enabled: boolean;
   };
   xui_connection: {
     base_url: string;
