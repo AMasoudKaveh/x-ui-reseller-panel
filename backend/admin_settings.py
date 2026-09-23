@@ -20,8 +20,9 @@ from starlette.background import BackgroundTask
 
 import backend.admin_representatives as admin_reps
 from backend.reseller_profile import SESSION_COOKIE, connect_db
-from backend.xui_client import XUIClient
+from backend.xui_client import XUIClient, env_string
 from backend import backup_service
+from backend import subscription_proxy_config
 
 router = APIRouter(prefix="/api/admin/settings", tags=["Admin Settings"])
 
@@ -43,6 +44,8 @@ class ConfigProxyBody(BaseModel):
 class SubscriptionProxyBody(BaseModel):
     host: str = ""
     port: int = Field(default=0, ge=0, le=65535)
+    certificate_path: str = ""
+    key_path: str = ""
 
 
 class CredentialsBody(BaseModel):
@@ -165,6 +168,14 @@ def _save_config_overrides(data: dict[str, dict[str, Any]]) -> None:
 
 def _find_int_by_keys(value: Any, wanted: set[str]) -> int:
     if isinstance(value, dict):
+        key_name = value.get("key") or value.get("name")
+        if key_name is not None:
+            folded = re.sub(r"[^a-z0-9]", "", str(key_name).lower())
+            if folded in wanted:
+                with contextlib.suppress(Exception):
+                    n = int(float(value.get("value")))
+                    if 1 <= n <= 65535:
+                        return n
         for key, nested in value.items():
             folded = re.sub(r"[^a-z0-9]", "", str(key).lower())
             if folded in wanted:
@@ -186,6 +197,56 @@ def _find_int_by_keys(value: Any, wanted: set[str]) -> int:
             parsed = json.loads(value)
             return _find_int_by_keys(parsed, wanted)
     return 0
+
+
+def _find_text_by_keys(value: Any, wanted: set[str]) -> str:
+    if isinstance(value, dict):
+        key_name = value.get("key") or value.get("name")
+        if key_name is not None:
+            folded = re.sub(r"[^a-z0-9]", "", str(key_name).lower())
+            if folded in wanted:
+                result = value.get("value")
+                return str(result or "").strip()
+        for key, nested in value.items():
+            folded = re.sub(r"[^a-z0-9]", "", str(key).lower())
+            if folded in wanted and not isinstance(nested, (dict, list)):
+                return str(nested or "").strip()
+        for nested in value.values():
+            found = _find_text_by_keys(nested, wanted)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for nested in value:
+            found = _find_text_by_keys(nested, wanted)
+            if found:
+                return found
+    elif isinstance(value, str):
+        with contextlib.suppress(Exception):
+            parsed = json.loads(value)
+            return _find_text_by_keys(parsed, wanted)
+    return ""
+
+
+def detect_panel_subscription_tls() -> tuple[str, str]:
+    xui = XUIClient()
+    endpoints = (
+        "/panel/api/setting/all",
+        "/panel/api/settings/all",
+        "/panel/api/setting/getAll",
+        "/panel/api/server/getConfigJson",
+    )
+    cert_wanted = {"subcertfile", "subscriptioncertfile", "subcertificatefile"}
+    key_wanted = {"subkeyfile", "subscriptionkeyfile", "subprivatekeyfile"}
+    for endpoint in endpoints:
+        try:
+            data = xui.request("GET", endpoint)
+            certificate_path = _find_text_by_keys(data, cert_wanted)
+            key_path = _find_text_by_keys(data, key_wanted)
+            if certificate_path and key_path:
+                return certificate_path, key_path
+        except Exception:
+            continue
+    return "", ""
 
 
 def detect_panel_subscription_port(force: bool = False) -> int:
@@ -229,7 +290,7 @@ def subscription_port_values() -> tuple[int, int, int]:
     detected = 0
     with contextlib.suppress(Exception):
         detected = detect_panel_subscription_port()
-    effective = manual or detected or 2096
+    effective = manual
     return manual, detected, effective
 
 
@@ -238,10 +299,10 @@ def public_subscription_override(sub_id: str) -> str:
     if not sub_id:
         return ""
     host = _get_setting("subscription_proxy_host", "").strip()
-    if not host:
+    manual, _, _ = subscription_port_values()
+    if not host or not manual:
         return ""
-    _, _, port = subscription_port_values()
-    authority = f"{host}:{port}" if port else host
+    authority = f"{host}:{manual}"
     return f"https://{authority}/sub/{quote(sub_id, safe='')}"
 
 
@@ -402,7 +463,10 @@ def get_admin_settings(xui_session: str | None = Cookie(default=None, alias=SESS
             "port": manual,
             "detected_port": detected,
             "effective_port": effective,
-            "fallback_port": 2096,
+            "fallback_port": 0,
+            "configured": bool(_get_setting("subscription_proxy_host", "").strip() and manual),
+            "certificate_path": _get_setting("subscription_proxy_certificate_path", ""),
+            "key_path": _get_setting("subscription_proxy_key_path", ""),
         },
         "xui_connection": backup_service.connection_summary(),
     }
@@ -446,10 +510,59 @@ def remove_config_proxy(inbound_id: int, xui_session: str | None = Cookie(defaul
 def save_subscription_proxy(body: SubscriptionProxyBody, xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
     _require_admin(xui_session)
     host = _normalize_host(body.host)
+    port = int(body.port or 0)
+    if bool(host) != bool(port):
+        raise HTTPException(status_code=400, detail="Subscription proxy host and port are both required")
+
+    current_port = 0
+    with contextlib.suppress(Exception):
+        current_port = int(_get_setting("subscription_proxy_port", "0") or 0)
+    certificate_path = str(body.certificate_path or "").strip()
+    key_path = str(body.key_path or "").strip()
+
+    if host:
+        detected_xui_port = detect_panel_subscription_port(force=True)
+        panel_port = 0
+        with contextlib.suppress(Exception):
+            panel_port = int(env_string("PANEL_PUBLIC_PORT") or 0)
+        if port in {8000, detected_xui_port, panel_port}:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Port {port} conflicts with an existing panel service; choose another free port",
+            )
+        if bool(certificate_path) != bool(key_path):
+            raise HTTPException(status_code=400, detail="Both TLS certificate and private key paths are required")
+        if not certificate_path:
+            certificate_path, key_path = detect_panel_subscription_tls()
+        if not certificate_path or not key_path:
+            raise HTTPException(
+                status_code=409,
+                detail="TLS files were not detected from x-ui; enter certificate and private key paths from this server",
+            )
+
+    try:
+        subscription_proxy_config.apply_nginx_config(
+            host=host,
+            port=port,
+            certificate_path=certificate_path,
+            key_path=key_path,
+            current_port=current_port,
+        )
+    except subscription_proxy_config.SubscriptionProxyConfigError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     _set_setting("subscription_proxy_host", host)
-    _set_setting("subscription_proxy_port", str(int(body.port or 0)))
+    _set_setting("subscription_proxy_port", str(port))
+    _set_setting("subscription_proxy_certificate_path", certificate_path)
+    _set_setting("subscription_proxy_key_path", key_path)
     manual, detected, effective = subscription_port_values()
-    return {"ok": True, "port": manual, "detected_port": detected, "effective_port": effective}
+    return {
+        "ok": True,
+        "port": manual,
+        "detected_port": detected,
+        "effective_port": effective,
+        "configured": bool(host and manual),
+    }
 
 
 @router.put("/credentials")

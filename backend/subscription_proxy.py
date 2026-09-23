@@ -127,12 +127,8 @@ def _profile_title_header(brand: str) -> str:
     brand = normalize_subscription_brand(brand)
     if not brand:
         return ""
-    try:
-        brand.encode("ascii")
-        return brand
-    except UnicodeEncodeError:
-        encoded = base64.b64encode(brand.encode("utf-8")).decode("ascii")
-        return "base64:" + encoded
+    encoded = base64.b64encode(brand.encode("utf-8")).decode("ascii")
+    return "base64:" + encoded
 
 
 def _response_headers(upstream: requests.Response, brand: str) -> dict[str, str]:
@@ -141,6 +137,7 @@ def _response_headers(upstream: requests.Response, brand: str) -> dict[str, str]
         for key, value in upstream.headers.items()
         if key.lower() not in HOP_BY_HOP_HEADERS
     }
+    headers["X-Reseller-Subscription-Proxy"] = "1"
     if brand:
         for key in list(headers):
             if key.lower() == "profile-title":

@@ -14,6 +14,9 @@ export type AdminSettingsData = {
     detected_port: number;
     effective_port: number;
     fallback_port: number;
+    configured: boolean;
+    certificate_path: string;
+    key_path: string;
   };
   xui_connection: {
     base_url: string;
@@ -76,10 +79,15 @@ export async function removeConfigProxy(inboundId: number): Promise<void> {
   await api(`/api/admin/settings/config-proxy/${inboundId}`, { method: "DELETE" });
 }
 
-export async function saveSubscriptionProxy(host: string, port: number): Promise<void> {
+export async function saveSubscriptionProxy(input: {
+  host: string;
+  port: number;
+  certificate_path: string;
+  key_path: string;
+}): Promise<void> {
   await api("/api/admin/settings/subscription-proxy", {
     method: "PUT",
-    body: JSON.stringify({ host, port })
+    body: JSON.stringify(input)
   });
 }
 

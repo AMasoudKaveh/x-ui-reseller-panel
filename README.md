@@ -571,6 +571,25 @@ When no external proxy configuration is defined, the original X-UI connection in
 
 This allows generated client configurations to use another public host, tunnel, or proxy endpoint while keeping X-UI as the backend source.
 
+## Branded Subscription Proxy
+
+The administrator can expose reseller-branded subscription links from **Admin Settings → External Proxy** without changing X-UI's global subscription title or database.
+
+- Enter the public domain and an explicitly selected free HTTPS port. There is no default port.
+- Do not reuse the X-UI subscription port, the reseller panel port, or the internal backend port.
+- The panel can read the existing X-UI subscription TLS certificate paths, or the administrator can enter absolute certificate and private-key paths on the server.
+- The selected port must be allowed by the server firewall and any cloud security group.
+- Nginx configuration is tested before reload and rolled back if validation fails.
+- Empty reseller brands preserve the original X-UI `Profile-Title`; configured brands override that response header only for subscriptions owned by that reseller.
+
+The public link format is:
+
+```text
+https://subscription.example.com:SELECTED_PORT/sub/CLIENT_SUB_ID
+```
+
+X-UI remains the upstream subscription source and its `obj.subTitle` setting is never modified.
+
 ---
 
 # Architecture

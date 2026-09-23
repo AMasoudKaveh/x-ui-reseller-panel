@@ -35,7 +35,10 @@ const colors: Array<{ id: AccentColor; title: string; swatch: string }> = [
 const EMPTY_SETTINGS: AdminSettingsData = {
   username: "",
   config_overrides: [],
-  subscription: { host: "", port: 0, detected_port: 0, effective_port: 2096, fallback_port: 2096 },
+  subscription: {
+    host: "", port: 0, detected_port: 0, effective_port: 0, fallback_port: 0,
+    configured: false, certificate_path: "", key_path: ""
+  },
   xui_connection: { base_url: "", auth_mode: "token" }
 };
 
@@ -59,6 +62,8 @@ export default function AdminSettingsPage() {
   const [proxySid, setProxySid] = useState("");
   const [subHost, setSubHost] = useState("");
   const [subPort, setSubPort] = useState("");
+  const [subCertificatePath, setSubCertificatePath] = useState("");
+  const [subKeyPath, setSubKeyPath] = useState("");
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [adminUsername, setAdminUsername] = useState("");
@@ -85,6 +90,8 @@ export default function AdminSettingsPage() {
       setAdminUsername(data.username || "");
       setSubHost(data.subscription.host || "");
       setSubPort(data.subscription.port ? String(data.subscription.port) : "");
+      setSubCertificatePath(data.subscription.certificate_path || "");
+      setSubKeyPath(data.subscription.key_path || "");
       setError("");
     } catch (err) {
       if (!silent) setError(err instanceof Error ? err.message : "Unable to load admin settings");
@@ -161,9 +168,18 @@ export default function AdminSettingsPage() {
   };
 
   const saveSub = async () => {
+    if (Boolean(subHost.trim()) !== Boolean(subPort)) {
+      setError("Subscription proxy host and port are both required");
+      return;
+    }
     setBusy(true);
     try {
-      await saveSubscriptionProxy(subHost.trim(), Math.max(0, Number(subPort || 0)));
+      await saveSubscriptionProxy({
+        host: subHost.trim(),
+        port: Math.max(0, Number(subPort || 0)),
+        certificate_path: subCertificatePath.trim(),
+        key_path: subKeyPath.trim()
+      });
       await loadSettings(true);
       showToast("Subscription proxy saved");
     } catch (err) {
@@ -279,16 +295,21 @@ export default function AdminSettingsPage() {
         </section>
 
         <section className="settings-section">
-          <div className="settings-section-title"><Network size={18}/><div><h2>Subscription External Proxy</h2><p>External public host and subscription port used for generated subscription links.</p></div></div>
+          <div className="settings-section-title"><Network size={18}/><div><h2>Branded Subscription Proxy</h2><p>Serve reseller-branded subscriptions on a dedicated domain and free HTTPS port without changing x-ui.</p></div></div>
           <div className="admin-settings-card">
             <div className="admin-settings-grid two">
-              <label><span>Subscription Host</span><input value={subHost} onChange={e=>setSubHost(e.target.value)} placeholder="proxy.example.com"/></label>
-              <label><span>Subscription Port</span><input inputMode="numeric" value={subPort} onChange={e=>setSubPort(e.target.value.replace(/\D/g,""))} placeholder={String(settings.subscription.effective_port || 2096)}/></label>
+              <label><span>Public Domain</span><input value={subHost} onChange={e=>setSubHost(e.target.value)} placeholder="sub.example.com"/></label>
+              <label><span>Public HTTPS Port</span><input inputMode="numeric" value={subPort} onChange={e=>setSubPort(e.target.value.replace(/\D/g,""))} placeholder="Enter a free port"/></label>
+              <label><span>TLS Certificate Path</span><input value={subCertificatePath} onChange={e=>setSubCertificatePath(e.target.value)} placeholder="Blank = detect from x-ui"/></label>
+              <label><span>TLS Private Key Path</span><input value={subKeyPath} onChange={e=>setSubKeyPath(e.target.value)} placeholder="Blank = detect from x-ui"/></label>
             </div>
-            <div className="admin-settings-port-note">{settings.subscription.detected_port ? `Detected from x-ui: ${settings.subscription.detected_port}` : `x-ui subscription port was not detected · fallback: ${settings.subscription.fallback_port || 2096}`} · Effective: <strong>{settings.subscription.port || settings.subscription.effective_port || 2096}</strong></div>
-            <div className="admin-settings-actions"><button className="admin-settings-primary" disabled={busy} onClick={()=>void saveSub()}><Save size={17}/>Save Subscription Proxy</button></div>
+            <div className="admin-settings-port-note">
+              x-ui upstream port: <strong>{settings.subscription.detected_port || "not detected"}</strong>
+              {settings.subscription.configured ? <> · Public proxy: <strong>{settings.subscription.host}:{settings.subscription.port}</strong></> : <> · Public proxy is not configured</>}
+            </div>
+            <div className="admin-settings-actions"><button className="admin-settings-primary" disabled={busy} onClick={()=>void saveSub()}><Save size={17}/>{subHost.trim() || subPort ? "Apply Subscription Proxy" : "Disable Subscription Proxy"}</button></div>
           </div>
-          <div className="settings-note"><CircleHelp size={17}/><span>Leave a host empty to use the original x-ui output. Per-inbound External Port and Reality SID are optional; blank values keep the original config values.</span></div>
+          <div className="settings-note"><CircleHelp size={17}/><span>Choose any free port and allow it through the server firewall or cloud security group. Host and port are required together; no default port is used. TLS files are read from x-ui when available, otherwise enter local absolute paths. Clear both host and port to disable the branded proxy.</span></div>
         </section>
       </> : null}
 
