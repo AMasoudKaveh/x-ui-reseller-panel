@@ -1,5 +1,6 @@
-import { Check, CircleHelp, Laptop, Moon, Palette, Sun } from "lucide-react";
+import { Check, CircleHelp, LoaderCircle, Save, Sun, Laptop, Moon, Palette, Tags } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { getResellerProfile, updateSubscriptionBrand } from "../api/reseller";
 import {
   type AccentColor,
   type UiMode,
@@ -35,7 +36,39 @@ const colors: Array<{
 export default function SettingsPage() {
   const { mode, accent, setMode, setAccent } = useThemeSettings();
   const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState("Theme changed successfully");
+  const [subscriptionBrand, setSubscriptionBrand] = useState("");
+  const [savedSubscriptionBrand, setSavedSubscriptionBrand] = useState("");
+  const [brandLoading, setBrandLoading] = useState(true);
+  const [brandSaving, setBrandSaving] = useState(false);
+  const [brandError, setBrandError] = useState("");
   const firstRender = useRef(true);
+
+  const showSuccess = (message: string) => {
+    setToastMessage(message);
+    setShowToast(true);
+    window.setTimeout(() => setShowToast(false), 1600);
+  };
+
+  useEffect(() => {
+    let active = true;
+    void getResellerProfile()
+      .then((profile) => {
+        if (!active) return;
+        const brand = profile.subscription_brand || "";
+        setSubscriptionBrand(brand);
+        setSavedSubscriptionBrand(brand);
+      })
+      .catch((error) => {
+        if (active) setBrandError(error instanceof Error ? error.message : "Failed to load Subscription Brand");
+      })
+      .finally(() => {
+        if (active) setBrandLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (firstRender.current) {
@@ -43,10 +76,26 @@ export default function SettingsPage() {
       return;
     }
 
+    setToastMessage("Theme changed successfully");
     setShowToast(true);
     const timeout = window.setTimeout(() => setShowToast(false), 1600);
     return () => window.clearTimeout(timeout);
   }, [mode, accent]);
+
+  const saveSubscriptionBrand = async () => {
+    setBrandSaving(true);
+    setBrandError("");
+    try {
+      const saved = await updateSubscriptionBrand(subscriptionBrand);
+      setSubscriptionBrand(saved);
+      setSavedSubscriptionBrand(saved);
+      showSuccess("Subscription Brand saved successfully");
+    } catch (error) {
+      setBrandError(error instanceof Error ? error.message : "Failed to save Subscription Brand");
+    } finally {
+      setBrandSaving(false);
+    }
+  };
 
   return (
     <>
@@ -147,6 +196,47 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        <section className="settings-section settings-brand-section">
+          <div className="settings-section-title">
+            <Tags size={18} strokeWidth={1.8} />
+            <div>
+              <h2>Subscription Brand</h2>
+              <p>Shown only in the subscription profiles of users created by your account.</p>
+            </div>
+          </div>
+
+          <div className="subscription-brand-card">
+            <label htmlFor="subscription-brand">Brand name</label>
+            <div className="subscription-brand-control">
+              <input
+                id="subscription-brand"
+                type="text"
+                maxLength={128}
+                value={subscriptionBrand}
+                disabled={brandLoading || brandSaving}
+                placeholder="Example: Alpha VPN"
+                onChange={(event) => {
+                  setSubscriptionBrand(event.target.value);
+                  setBrandError("");
+                }}
+              />
+              <button
+                type="button"
+                disabled={brandLoading || brandSaving || subscriptionBrand.trim() === savedSubscriptionBrand}
+                onClick={() => void saveSubscriptionBrand()}
+              >
+                {brandSaving ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />}
+                Save
+              </button>
+            </div>
+            <div className="subscription-brand-meta">
+              <span>{subscriptionBrand.length}/128</span>
+              <span>Leave empty to keep the original x-ui Profile-Title.</span>
+            </div>
+            {brandError ? <div className="subscription-brand-error">{brandError}</div> : null}
+          </div>
+        </section>
+
         <div className="settings-note">
           <CircleHelp size={17} strokeWidth={1.8} />
           <span>
@@ -163,7 +253,7 @@ export default function SettingsPage() {
           </span>
           <div>
             <strong>Success</strong>
-            <span>Theme changed successfully</span>
+            <span>{toastMessage}</span>
           </div>
         </div>
       ) : null}

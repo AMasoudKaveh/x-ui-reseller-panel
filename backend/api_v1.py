@@ -1853,6 +1853,8 @@ def api_revoke_subscription(
 def api_user_access(
     client_id: int,
 
+    request: Request,
+
     principal: ApiPrincipal = Depends(
         require_scope("users:read")
     ),
@@ -1864,6 +1866,7 @@ def api_user_access(
         lambda token:
             user_access(
                 client_id=client_id,
+                request=request,
                 xui_session=token,
             ),
         client_id=client_id,

@@ -104,6 +104,7 @@ def init_db() -> None:
                 username TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'active',
+                subscription_brand TEXT NOT NULL DEFAULT '',
                 created_at INTEGER NOT NULL
             );
 
@@ -120,6 +121,16 @@ def init_db() -> None:
             );
             """
         )
+
+        representative_columns = {
+            str(row["name"])
+            for row in con.execute("PRAGMA table_info(representatives)").fetchall()
+        }
+        if "subscription_brand" not in representative_columns:
+            con.execute(
+                "ALTER TABLE representatives "
+                "ADD COLUMN subscription_brand TEXT NOT NULL DEFAULT ''"
+            )
 
         now = int(time.time())
 
@@ -588,6 +599,10 @@ from backend.reseller_user_actions import (
 app.include_router(
     reseller_user_actions_router
 )
+
+from backend.subscription_proxy import router as subscription_proxy_router
+
+app.include_router(subscription_proxy_router)
 
 # === RESELLER LIVE TRAFFIC + QUOTA ROUTER ===
 

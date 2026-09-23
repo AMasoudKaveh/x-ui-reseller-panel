@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 from fastapi import APIRouter, Cookie, HTTPException
+from pydantic import BaseModel
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -18,6 +19,29 @@ router = APIRouter(
     prefix="/api/reseller",
     tags=["Reseller"]
 )
+
+
+MAX_SUBSCRIPTION_BRAND_LENGTH = 128
+
+
+class SubscriptionBrandBody(BaseModel):
+    subscription_brand: str = ""
+
+
+def normalize_subscription_brand(value: str | None) -> str:
+    brand = str(value or "").strip()
+    if "\r" in brand or "\n" in brand:
+        raise HTTPException(status_code=400, detail="Subscription Brand cannot contain line breaks")
+    if any(ord(char) < 32 or ord(char) == 127 for char in brand):
+        raise HTTPException(status_code=400, detail="Subscription Brand contains invalid characters")
+    if len(brand) > MAX_SUBSCRIPTION_BRAND_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Subscription Brand must be {MAX_SUBSCRIPTION_BRAND_LENGTH} characters or fewer",
+        )
+    if len(brand.encode("utf-8")) > 256:
+        raise HTTPException(status_code=400, detail="Subscription Brand is too long")
+    return brand
 
 
 def connect_db() -> sqlite3.Connection:
@@ -90,6 +114,16 @@ def ensure_profile_schema() -> None:
                 ALTER TABLE representatives
                 ADD COLUMN total_users
                 INTEGER NOT NULL DEFAULT 0
+                """
+            )
+
+        if "subscription_brand" not in columns:
+
+            con.execute(
+                """
+                ALTER TABLE representatives
+                ADD COLUMN subscription_brand
+                TEXT NOT NULL DEFAULT ''
                 """
             )
 
@@ -170,7 +204,8 @@ def get_reseller_from_session(
                 status,
                 quota_bytes,
                 used_bytes,
-                total_users
+                total_users,
+                subscription_brand
 
             FROM representatives
 
@@ -299,5 +334,29 @@ def reseller_profile(
                     reseller["total_users"]
                     or 0
                 ),
+
+            "subscription_brand":
+                str(reseller["subscription_brand"] or ""),
         }
     }
+
+
+@router.put("/settings/subscription-brand")
+def update_subscription_brand(
+    body: SubscriptionBrandBody,
+    xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+):
+    ensure_profile_schema()
+    reseller = get_reseller_from_session(xui_session)
+    brand = normalize_subscription_brand(body.subscription_brand)
+
+    with connect_db() as con:
+        cursor = con.execute(
+            "UPDATE representatives SET subscription_brand=? WHERE id=?",
+            (brand, int(reseller["id"])),
+        )
+        if cursor.rowcount != 1:
+            raise HTTPException(status_code=404, detail="Representative not found")
+        con.commit()
+
+    return {"ok": True, "subscription_brand": brand}

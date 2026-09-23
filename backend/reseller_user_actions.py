@@ -11,7 +11,7 @@ from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsp
 
 import qrcode
 import qrcode.image.svg
-from fastapi import APIRouter, Cookie, HTTPException
+from fastapi import APIRouter, Cookie, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from backend.reseller_profile import SESSION_COOKIE, connect_db, get_reseller_from_session
@@ -273,7 +273,9 @@ def public_config_link(link: str, email: str, uid: str) -> str:
         return link
 
 
-def subscription_url(all_links: list[str], sub_id: str) -> str:
+def subscription_url(all_links: list[str], sub_id: str, proxy_base_url: str = "") -> str:
+    if proxy_base_url and sub_id:
+        return proxy_base_url.rstrip("/") + "/api/subscriptions/" + quote(sub_id, safe="")
     # === ADMIN STEP 5 EXTERNAL PROXY OUTPUT ===
     # Admin external subscription settings take precedence over the private
     # x-ui panel URL. If unset, preserve the exact old fallback behavior.
@@ -315,7 +317,7 @@ def make_qr_svg(text: str) -> str:
     return buf.getvalue().decode("utf-8", errors="replace")
 
 
-def access_bundle(xui: XUIClient, local: dict) -> dict:
+def access_bundle(xui: XUIClient, local: dict, proxy_base_url: str = "") -> dict:
     email = str(local.get("email") or "").strip()
     raw_client, panel = {}, {}
     with contextlib.suppress(Exception):
@@ -336,7 +338,7 @@ def access_bundle(xui: XUIClient, local: dict) -> dict:
                 from backend.admin_settings import rewrite_client_config
                 rewritten = rewrite_client_config(link, attached_ids, xui)
             configs.append(rewritten if rewritten else link)
-    sub_url = subscription_url(all_links, sub_id)
+    sub_url = subscription_url(all_links, sub_id, proxy_base_url)
     return {
         "username": email,
         "uuid": uid,
@@ -476,11 +478,15 @@ def modify_user(client_id: int, body: ModifyUserBody, xui_session: str | None = 
 
 
 @router.get("/users/{client_id}/access")
-def user_access(client_id: int, xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
+def user_access(
+    client_id: int,
+    request: Request,
+    xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+):
     rep = get_reseller_from_session(xui_session)
     local = owned_user(client_id, int(rep["id"]))
     try:
-        return {"ok": True, **access_bundle(XUIClient(), local)}
+        return {"ok": True, **access_bundle(XUIClient(), local, str(request.base_url))}
     except Exception as e:
         raise HTTPException(502, "Unable to load client links: " + str(e))
 

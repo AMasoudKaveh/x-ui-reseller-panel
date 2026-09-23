@@ -9,6 +9,7 @@ export type ResellerProfile = {
   remaining_bytes: number;
   usage_percent: number;
   total_users: number;
+  subscription_brand: string;
 };
 
 type ProfileResponse = {
@@ -52,4 +53,30 @@ let message = "Failed to load reseller profile";
   const result: ProfileResponse = await response.json();
 
   return result.profile;
+}
+
+export async function updateSubscriptionBrand(subscriptionBrand: string): Promise<string> {
+  const response = await fetch("/api/reseller/settings/subscription-brand", {
+    method: "PUT",
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ subscription_brand: subscriptionBrand })
+  });
+
+  if (!response.ok) {
+    let message = "Failed to save Subscription Brand";
+    try {
+      const body = await response.json();
+      if (body?.detail) message = body.detail;
+    } catch {
+      // Keep the generic message for an invalid error body.
+    }
+    throw new Error(message);
+  }
+
+  const result: { ok: boolean; subscription_brand: string } = await response.json();
+  return result.subscription_brand;
 }
