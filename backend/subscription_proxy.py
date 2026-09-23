@@ -13,7 +13,7 @@ from backend.reseller_users import ensure_users_schema
 from backend.xui_client import XUIClient
 
 
-router = APIRouter(prefix="/api/subscriptions", tags=["Subscriptions"])
+router = APIRouter(tags=["Subscriptions"])
 
 SUB_ID_RE = re.compile(r"^[A-Za-z0-9_-]{4,128}$")
 HOP_BY_HOP_HEADERS = {
@@ -149,7 +149,8 @@ def _response_headers(upstream: requests.Response, brand: str) -> dict[str, str]
     return headers
 
 
-@router.get("/{sub_id}")
+@router.get("/api/subscriptions/{sub_id}")
+@router.get("/sub/{sub_id}")
 def proxy_subscription(sub_id: str, request: Request):
     token = str(sub_id or "").strip()
     if not SUB_ID_RE.fullmatch(token):

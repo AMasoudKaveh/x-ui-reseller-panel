@@ -275,6 +275,14 @@ def public_config_link(link: str, email: str, uid: str) -> str:
 
 def subscription_url(all_links: list[str], sub_id: str, proxy_base_url: str = "") -> str:
     if proxy_base_url and sub_id:
+        # Keep the administrator's public subscription proxy address as the
+        # canonical URL. That host must route /sub/* back to this panel's
+        # subscription proxy so per-representative branding can be applied.
+        with contextlib.suppress(Exception):
+            from backend.admin_settings import public_subscription_override
+            overridden = public_subscription_override(sub_id)
+            if overridden:
+                return overridden
         return proxy_base_url.rstrip("/") + "/api/subscriptions/" + quote(sub_id, safe="")
     # === ADMIN STEP 5 EXTERNAL PROXY OUTPUT ===
     # Admin external subscription settings take precedence over the private

@@ -5,10 +5,12 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from fastapi import HTTPException
 
 from backend import reseller_profile, subscription_proxy
+from backend.reseller_user_actions import subscription_url
 
 
 class SubscriptionBrandTests(unittest.TestCase):
@@ -85,6 +87,19 @@ class SubscriptionBrandTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as caught:
             reseller_profile.normalize_subscription_brand("Alpha\r\nInjected: value")
         self.assertEqual(caught.exception.status_code, 400)
+
+    def test_admin_public_subscription_proxy_is_the_canonical_link(self) -> None:
+        with patch(
+            "backend.admin_settings.public_subscription_override",
+            return_value="https://pro.gsmbax.net:2096/sub/subAlpha",
+        ):
+            result = subscription_url([], "subAlpha", "http://91.107.253.206/")
+        self.assertEqual(result, "https://pro.gsmbax.net:2096/sub/subAlpha")
+
+    def test_both_subscription_proxy_routes_are_registered(self) -> None:
+        paths = {route.path for route in subscription_proxy.router.routes}
+        self.assertIn("/api/subscriptions/{sub_id}", paths)
+        self.assertIn("/sub/{sub_id}", paths)
 
 
 if __name__ == "__main__":

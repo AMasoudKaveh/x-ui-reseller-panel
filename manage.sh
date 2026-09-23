@@ -90,6 +90,19 @@ server {
         proxy_buffering off;
     }
 
+    location /sub/ {
+        proxy_pass http://127.0.0.1:$INTERNAL_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 120s;
+        proxy_read_timeout 120s;
+        proxy_buffering off;
+    }
+
     location /assets/ {
         try_files \$uri =404;
         expires 7d;
@@ -454,6 +467,7 @@ update_from_git() {
   (( update_failed == 0 )) && "$VENV/bin/pip" install -r "$BACKEND_DIR/requirements.txt" || update_failed=1
   (( update_failed == 0 )) && npm ci || update_failed=1
   (( update_failed == 0 )) && npm run build || update_failed=1
+  (( update_failed == 0 )) && write_nginx "$(current_port)" || update_failed=1
   (( update_failed == 0 )) && nginx -t || update_failed=1
   (( update_failed == 0 )) && systemctl restart "$SERVICE_NAME" || update_failed=1
   if (( update_failed == 0 )); then
