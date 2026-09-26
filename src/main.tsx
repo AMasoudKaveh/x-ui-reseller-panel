@@ -10,10 +10,11 @@ import "./admin.css";
 import "./admin-settings.css";
 import "./theme.css";
 import "./persistent-sidebar.css";
+import "./i18n.css";
+import "./mobile-ux.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />
   </React.StrictMode>
 );
-import "./i18n.css";

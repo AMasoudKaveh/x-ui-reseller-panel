@@ -687,6 +687,28 @@ export default function Sidebar({
                   : null
                 }
 
+                <div className="mobile-account-language">
+                  <span>{t("language.label")}</span>
+
+                  <div className="language-switch" role="group" aria-label={t("language.label")}>
+                    <button
+                      type="button"
+                      className={`language-option ${language === "en" ? "active" : ""}`}
+                      onClick={() => setLanguage("en")}
+                    >
+                      EN
+                    </button>
+
+                    <button
+                      type="button"
+                      className={`language-option ${language === "fa" ? "active" : ""}`}
+                      onClick={() => setLanguage("fa")}
+                    >
+                      فارسی
+                    </button>
+                  </div>
+                </div>
+
               </div>
 
 
