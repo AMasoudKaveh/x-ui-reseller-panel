@@ -41,6 +41,10 @@ class ToggleBody(BaseModel):
     enabled: bool
 
 
+class BulkDeleteBody(BaseModel):
+    client_ids: list[int] = Field(default_factory=list, min_length=1, max_length=100)
+
+
 def now_text() -> str:
     return datetime.now().isoformat(sep=" ", timespec="seconds")
 
@@ -624,3 +628,19 @@ def remove_user(client_id: int, xui_session: str | None = Cookie(default=None, a
         """, (rep_id, rep_id))
         con.commit()
     return {"ok": True, "deleted": local.get("email"), "archived_used_bytes": archived_used, "panel_delete": panel_result}
+
+
+@router.post("/users/bulk-delete")
+def bulk_remove_users(body: BulkDeleteBody, xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
+    get_reseller_from_session(xui_session)
+    deleted: list[dict] = []
+    errors: list[dict] = []
+    for client_id in list(dict.fromkeys(int(value) for value in body.client_ids if int(value) > 0)):
+        try:
+            result = remove_user(client_id, xui_session)
+            deleted.append({"id": client_id, "username": result.get("deleted")})
+        except HTTPException as exc:
+            errors.append({"id": client_id, "detail": str(exc.detail)})
+        except Exception as exc:
+            errors.append({"id": client_id, "detail": str(exc)})
+    return {"ok": not errors, "deleted": deleted, "errors": errors}

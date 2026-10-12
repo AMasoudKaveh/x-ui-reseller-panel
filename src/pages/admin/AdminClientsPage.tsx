@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Ban, CalendarDays, ChevronDown, Copy, Link2, MoreVertical, PencilLine,
+  Ban, CalendarDays, ChevronDown, Copy, Layers3, Link2, MoreVertical, PencilLine,
   QrCode, RefreshCcw, RotateCcw, Search, SortAsc, Trash2, UserCheck,
   UsersRound, Wifi
 } from "lucide-react";
@@ -8,6 +8,7 @@ import {
   getAdminClientAccess,
   getAdminClients,
   removeAdminClient,
+  removeAdminClientsBulk,
   resetAdminClientUsage,
   revokeAdminClientSubscription,
   toggleAdminClient,
@@ -17,6 +18,7 @@ import {
 } from "../../api/adminClients";
 import AdminModifyUserModal from "../../components/AdminModifyUserModal";
 import AdminSubscriptionModal from "../../components/AdminSubscriptionModal";
+import BulkUserModal from "../../components/BulkUserModal";
 
 type SortKey = "created" | "username" | "owner";
 
@@ -60,6 +62,9 @@ export default function AdminClientsPage() {
   const [menuFor, setMenuFor] = useState<number | null>(null);
   const [toast, setToast] = useState("");
   const [loading, setLoading] = useState(true);
+  const [bulkCreateOpen, setBulkCreateOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -185,8 +190,41 @@ export default function AdminClientsPage() {
     }
   };
 
+  const toggleSelected = (clientId: number) => {
+    setSelectedIds(current => {
+      const next = new Set(current);
+      if (next.has(clientId)) next.delete(clientId);
+      else next.add(clientId);
+      return next;
+    });
+  };
+
+  const deleteSelected = async () => {
+    const ids = Array.from(selectedIds);
+    if (!ids.length || !window.confirm(`Remove ${ids.length} selected clients from x-ui and this panel?`)) return;
+    setBulkDeleting(true);
+    try {
+      const result = await removeAdminClientsBulk(ids);
+      setSelectedIds(new Set(result.errors.map(item => item.id)));
+      showToast(result.errors.length
+        ? `${result.deleted.length} removed, ${result.errors.length} failed`
+        : `${result.deleted.length} clients removed`);
+      await load(true);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Bulk removal failed");
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
   return <>
-    <header className="page-header users-header"><div><div className="page-title-row"><h1>Clients</h1><span className="help-chip">?</span></div><p>View all clients created by representatives</p></div></header>
+    <header className="page-header users-header">
+      <div><div className="page-title-row"><h1>Clients</h1><span className="help-chip">?</span></div><p>View all clients created by representatives</p></div>
+      <div className="users-header-actions">
+        {selectedIds.size ? <button className="bulk-delete-button" type="button" disabled={bulkDeleting} onClick={() => void deleteSelected()}><Trash2 size={19}/>{bulkDeleting ? "Removing…" : `Delete Selected (${selectedIds.size})`}</button> : null}
+        <button className="bulk-action-button" type="button" onClick={() => setBulkCreateOpen(true)}><Layers3 size={19}/>Add Bulk</button>
+      </div>
+    </header>
 
     <main className="up-page" onClick={()=>{setSortOpen(false);setMenuFor(null)}}>
       <section className="up-stats-grid">
@@ -209,11 +247,11 @@ export default function AdminClientsPage() {
       </section>
 
       <section className="ac-table-card">
-        <div className="ac-table-head"><div>Client</div><div>Owner</div><div>Status / Expire</div><div>Inbound</div><div>Data Usage</div><div/></div>
+        <div className="ac-table-head"><div className="bulk-client-heading"><label className="up-check"><input type="checkbox" checked={visible.length > 0 && visible.every(client => selectedIds.has(client.id))} onChange={event => { const checked = event.target.checked; setSelectedIds(current => { const next = new Set(current); visible.forEach(client => checked ? next.add(client.id) : next.delete(client.id)); return next; }); }}/><span/></label>Client</div><div>Owner</div><div>Status / Expire</div><div>Inbound</div><div>Data Usage</div><div/></div>
         {visible.map(c=>{
           const percent = c.limit_bytes > 0 ? Math.min(100, c.usage_percent) : 0;
           return <div className="ac-row" key={c.id}>
-            <div className="up-name-cell"><span className={`up-presence ${c.online?"online":""}`}/><div className="up-username-line"><strong>{c.username}</strong><span>#{c.id}</span><span>{c.age}</span></div></div>
+            <div className="up-name-cell"><label className="up-check" onClick={event => event.stopPropagation()}><input type="checkbox" checked={selectedIds.has(c.id)} onChange={() => toggleSelected(c.id)}/><span/></label><span className={`up-presence ${c.online?"online":""}`}/><div className="up-username-line"><strong>{c.username}</strong><span>#{c.id}</span><span>{c.age}</span></div></div>
             <div><span className="ac-owner-chip">{c.owner}</span></div>
             <div className="up-status-cell"><span className={c.status==="Active"?"up-active-pill":"ac-disabled-pill"}><Wifi size={14}/>{c.status}</span><span className="up-expiry">{expiryText(c.expires_in)}</span></div>
             <div className="ac-inbound">{c.inbound}</div>
@@ -244,5 +282,6 @@ export default function AdminClientsPage() {
     {toast&&<div className="ua-global-toast">{toast}</div>}
     <AdminModifyUserModal open={Boolean(modify)} userId={modify} onClose={()=>setModify(null)} onSaved={()=>load(true)}/>
     <AdminSubscriptionModal open={Boolean(qrAccess)} access={qrAccess} onClose={()=>setQrAccess(null)} onCopy={(text,msg)=>void copy(text,msg)}/>
+    <BulkUserModal open={bulkCreateOpen} portal="admin" onClose={() => setBulkCreateOpen(false)} onCreated={async () => { setBulkCreateOpen(false); await load(true); }}/>
   </>;
 }

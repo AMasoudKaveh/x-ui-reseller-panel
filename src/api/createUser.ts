@@ -23,6 +23,32 @@ export type CreateUserPayload = {
   telegram_user_id: string;
 };
 
+export type BulkCreateUserPayload = {
+  inbound_ids: number[];
+  method: "random" | "sequential";
+  username_prefix: string;
+  number_of_clients: number;
+  subscription_id: string;
+  group: string;
+  hwid_limit: number;
+  comment: string;
+  limit_ip: number;
+  traffic_gb: number;
+  start_after_first_use: boolean;
+  duration_days: number;
+  auto_renew: number;
+  renew_on_day: number;
+  max_renewals: number;
+  traffic_reset: number;
+  enabled: boolean;
+};
+
+export type BulkOperationResult = {
+  ok: boolean;
+  created: Array<{ id: number; username: string }>;
+  errors: Array<{ username: string; detail: string }>;
+};
+
 
 type InboundsResponse = {
   ok: boolean;
@@ -152,4 +178,15 @@ createXuiUser(
 
 
   return result;
+}
+
+export async function createBulkXuiUsers(payload: BulkCreateUserPayload): Promise<BulkOperationResult> {
+  const response = await fetch("/api/reseller/users/bulk", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error(await errorMessage(response, "Unable to create users"));
+  return response.json();
 }

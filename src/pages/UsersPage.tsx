@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Clock3,
   Copy,
+  Layers3,
   Link2,
   MoreVertical,
   PencilLine,
@@ -31,6 +32,9 @@ import {
 import CreateUserModal
   from "../components/CreateUserModal";
 
+import BulkUserModal
+  from "../components/BulkUserModal";
+
 import ModifyUserModal
   from "../components/ModifyUserModal";
 
@@ -40,6 +44,7 @@ import SubscriptionModal
 import {
   getUserAccess,
   removeUser,
+  removeUsersBulk,
   resetUserUsage,
   revokeSubscription,
   toggleUser
@@ -322,6 +327,10 @@ export default function UsersPage() {
     createOpen,
     setCreateOpen
   ] = useState(false);
+
+  const [bulkCreateOpen, setBulkCreateOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
 
   const [
@@ -680,6 +689,33 @@ const [
     );
   };
 
+  const toggleSelected = (clientId: number) => {
+    setSelectedIds(current => {
+      const next = new Set(current);
+      if (next.has(clientId)) next.delete(clientId);
+      else next.add(clientId);
+      return next;
+    });
+  };
+
+  const deleteSelected = async () => {
+    const ids = Array.from(selectedIds);
+    if (!ids.length || !window.confirm(`Remove ${ids.length} selected users from x-ui and this panel?`)) return;
+    setBulkDeleting(true);
+    try {
+      const result = await removeUsersBulk(ids);
+      setSelectedIds(new Set(result.errors.map(item => item.id)));
+      showGlobalToast(result.errors.length
+        ? `${result.deleted.length} removed, ${result.errors.length} failed`
+        : `${result.deleted.length} users removed`);
+      await loadUsers(true);
+    } catch (err) {
+      showGlobalToast(err instanceof Error ? err.message : "Bulk removal failed");
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
 
   const copyText = async (
     value: string
@@ -839,21 +875,17 @@ const [
         </div>
 
 
-        <button
-          className="
-            up-create-button
-          "
-          type="button"
-          onClick={() =>
-            setCreateOpen(true)
-          }
-        >
-
-          <Plus size={20} />
-
-          Create User
-
-        </button>
+        <div className="users-header-actions">
+          {selectedIds.size ? <button className="bulk-delete-button" type="button" disabled={bulkDeleting} onClick={() => void deleteSelected()}>
+            <Trash2 size={19}/>{bulkDeleting ? "Removing…" : `Delete Selected (${selectedIds.size})`}
+          </button> : null}
+          <button className="bulk-action-button" type="button" onClick={() => setBulkCreateOpen(true)}>
+            <Layers3 size={19}/>Add Bulk
+          </button>
+          <button className="up-create-button" type="button" onClick={() => setCreateOpen(true)}>
+            <Plus size={20}/>Create User
+          </button>
+        </div>
 
       </header>
 
@@ -1210,6 +1242,15 @@ const [
 
               <input
                 type="checkbox"
+                checked={visibleUsers.length > 0 && visibleUsers.every(user => selectedIds.has(user.id))}
+                onChange={event => {
+                  const checked = event.target.checked;
+                  setSelectedIds(current => {
+                    const next = new Set(current);
+                    visibleUsers.forEach(user => checked ? next.add(user.id) : next.delete(user.id));
+                    return next;
+                  });
+                }}
               />
 
               <span />
@@ -1346,6 +1387,8 @@ const [
 
                                 <input
                                   type="checkbox"
+                                  checked={selectedIds.has(user.id)}
+                                  onChange={() => toggleSelected(user.id)}
                                 />
 
                                 <span />
@@ -1856,6 +1899,16 @@ const [
         }
         onCreated={async () => {
           setCreateOpen(false);
+          await loadUsers();
+        }}
+      />
+
+      <BulkUserModal
+        open={bulkCreateOpen}
+        portal="reseller"
+        onClose={() => setBulkCreateOpen(false)}
+        onCreated={async () => {
+          setBulkCreateOpen(false);
           await loadUsers();
         }}
       />

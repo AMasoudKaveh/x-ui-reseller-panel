@@ -171,3 +171,25 @@ export async function revokeAdminClientSubscription(clientId: number): Promise<v
 export async function removeAdminClient(clientId: number): Promise<void> {
   await request(`/api/admin/clients/${clientId}`, { method: "DELETE" });
 }
+
+export type AdminBulkCreatePayload = import("./createUser").BulkCreateUserPayload & {
+  owner_rep_id: number;
+};
+
+export async function createAdminClientsBulk(payload: AdminBulkCreatePayload) {
+  return request<import("./createUser").BulkOperationResult>("/api/admin/clients/bulk", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function removeAdminClientsBulk(clientIds: number[]): Promise<{
+  ok: boolean;
+  deleted: Array<{ id: number; username: string }>;
+  errors: Array<{ id: number; detail: string }>;
+}> {
+  return request("/api/admin/clients/bulk-delete", {
+    method: "POST",
+    body: JSON.stringify({ client_ids: clientIds }),
+  });
+}

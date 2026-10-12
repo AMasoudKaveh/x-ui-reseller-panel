@@ -12,10 +12,18 @@ from typing import Any
 from fastapi import APIRouter, Cookie, HTTPException
 
 import backend.admin_representatives as admin_reps
-from backend.reseller_create_user import expiry_to_ms, gb_to_bytes, normalize_inbound_ids, resolve_expiry_ms
+from backend.reseller_create_user import (
+    BulkCreateUserBody,
+    bulk_create_reseller_users,
+    expiry_to_ms,
+    gb_to_bytes,
+    normalize_inbound_ids,
+    resolve_expiry_ms,
+)
 from backend.reseller_profile import SESSION_COOKIE, connect_db
 from backend.reseller_user_actions import (
     ModifyUserBody,
+    BulkDeleteBody,
     ToggleBody,
     access_bundle,
     delete_from_panel,
@@ -44,6 +52,10 @@ router = APIRouter(
 _LAST_INBOUNDS: list[dict[str, Any]] = []
 
 
+class AdminBulkCreateBody(BulkCreateUserBody):
+    owner_rep_id: int
+
+
 def _require_admin(token: str | None) -> dict[str, Any]:
     return admin_reps.require_admin(token)
 
@@ -58,6 +70,41 @@ def _sync_if_due() -> None:
         from backend.reseller_live_quota import sync_if_due
 
         sync_if_due()
+
+
+@router.post("/clients/bulk")
+def bulk_create_admin_clients(
+    body: AdminBulkCreateBody,
+    xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+):
+    _require_admin(xui_session)
+    admin_reps.ensure_admin_schema()
+    rep_id = int(body.owner_rep_id or 0)
+    with connect_db() as con:
+        rep = con.execute(
+            "SELECT id,status FROM representatives WHERE id=? AND deleted_at IS NULL",
+            (rep_id,),
+        ).fetchone()
+        if not rep:
+            raise HTTPException(status_code=404, detail="Representative not found")
+        if str(rep["status"] or "").lower() != "active":
+            raise HTTPException(status_code=409, detail="Representative is not active")
+
+        token = "admin-bulk-" + secrets.token_urlsafe(24)
+        now = int(time.time())
+        con.execute(
+            "INSERT INTO auth_sessions(token,role,account_id,expires_at,created_at) VALUES(?, 'reseller', ?, ?, ?)",
+            (token, rep_id, now + 300, now),
+        )
+        con.commit()
+
+    try:
+        reseller_body = BulkCreateUserBody(**body.model_dump(exclude={"owner_rep_id"}))
+        return bulk_create_reseller_users(reseller_body, token)
+    finally:
+        with connect_db() as con:
+            con.execute("DELETE FROM auth_sessions WHERE token=?", (token,))
+            con.commit()
 
 
 def _live_inbounds() -> list[dict[str, Any]]:
@@ -803,3 +850,22 @@ def remove_admin_client(
         "archived_used_bytes": archived_used,
         "panel_delete": panel_result,
     }
+
+
+@router.post("/clients/bulk-delete")
+def bulk_remove_admin_clients(
+    body: BulkDeleteBody,
+    xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+):
+    _require_admin(xui_session)
+    deleted: list[dict] = []
+    errors: list[dict] = []
+    for client_id in list(dict.fromkeys(int(value) for value in body.client_ids if int(value) > 0)):
+        try:
+            result = remove_admin_client(client_id, xui_session)
+            deleted.append({"id": client_id, "username": result.get("deleted")})
+        except HTTPException as exc:
+            errors.append({"id": client_id, "detail": str(exc.detail)})
+        except Exception as exc:
+            errors.append({"id": client_id, "detail": str(exc)})
+    return {"ok": not errors, "deleted": deleted, "errors": errors}

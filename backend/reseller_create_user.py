@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 
 from datetime import (
     datetime,
+    timedelta,
     time as dt_time,
 )
 
@@ -89,6 +91,34 @@ class CreateUserBody(
     )
 
     telegram_user_id: str = ""
+
+    sub_id: str = ""
+    group_name: str = ""
+    hwid_limit: int = Field(default=0, ge=0, le=1000)
+    traffic_reset: int = Field(default=0, ge=0, le=31)
+    auto_renew: int = Field(default=0, ge=0, le=3650)
+    renew_on_day: int = Field(default=0, ge=0, le=31)
+    max_renewals: int = Field(default=0, ge=0, le=1000)
+
+
+class BulkCreateUserBody(BaseModel):
+    inbound_ids: list[int] = Field(default_factory=list)
+    method: str = "random"
+    username_prefix: str = "user"
+    number_of_clients: int = Field(default=1, ge=1, le=100)
+    subscription_id: str = ""
+    group: str = ""
+    hwid_limit: int = Field(default=0, ge=0, le=1000)
+    comment: str = ""
+    limit_ip: int = Field(default=0, ge=0, le=1000)
+    traffic_gb: float = Field(default=0, ge=0, le=100000)
+    start_after_first_use: bool = False
+    duration_days: int = Field(default=0, ge=0, le=3650)
+    auto_renew: int = Field(default=0, ge=0, le=3650)
+    renew_on_day: int = Field(default=0, ge=0, le=31)
+    max_renewals: int = Field(default=0, ge=0, le=1000)
+    traffic_reset: int = Field(default=0, ge=0, le=31)
+    enabled: bool = True
 
 
 def gb_to_bytes(
@@ -626,9 +656,7 @@ def create_reseller_user(
         )
 
 
-    group_name = (
-        f"rep_{reseller_id}"
-    )
+    group_name = body.group_name.strip() or f"rep_{reseller_id}"
 
 
     #
@@ -666,6 +694,13 @@ def create_reseller_user(
 
             tg_id=
                 tg_id,
+
+            sub_id=body.sub_id,
+            hwid_limit=body.hwid_limit,
+            reset=body.traffic_reset,
+            auto_renew=body.auto_renew,
+            renew_on_day=body.renew_on_day,
+            max_renewals=body.max_renewals,
         )
 
 
@@ -958,3 +993,66 @@ def create_reseller_user(
                 is not None,
         },
     }
+
+
+def _bulk_username(prefix: str, method: str, index: int) -> str:
+    clean = re.sub(r"[^A-Za-z0-9_.@-]", "-", str(prefix or "user").strip()).strip("-") or "user"
+    if str(method or "random").lower() == "sequential":
+        suffix = f"{index + 1:03d}"
+    else:
+        suffix = secrets.token_hex(4)
+    return f"{clean}-{suffix}"[:64]
+
+
+@router.post("/users/bulk")
+def bulk_create_reseller_users(
+    body: BulkCreateUserBody,
+    xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+):
+    get_reseller_from_session(xui_session)
+    if not normalize_inbound_ids(body.inbound_ids):
+        raise HTTPException(status_code=400, detail="Select at least one inbound")
+
+    method = str(body.method or "random").lower()
+    if method not in {"random", "sequential"}:
+        raise HTTPException(status_code=400, detail="Method must be Random or Sequential")
+
+    expiry_date = ""
+    if body.duration_days and not body.start_after_first_use:
+        expiry_date = (datetime.now().date() + timedelta(days=body.duration_days)).isoformat()
+
+    created: list[dict] = []
+    errors: list[dict] = []
+    for index in range(body.number_of_clients):
+        username = _bulk_username(body.username_prefix, method, index)
+        requested_sub = str(body.subscription_id or "").strip()
+        sub_id = requested_sub if body.number_of_clients == 1 else (f"{requested_sub}{index + 1}" if requested_sub else "")
+        try:
+            result = create_reseller_user(
+                CreateUserBody(
+                    username=username,
+                    traffic_gb=body.traffic_gb,
+                    expiry_date=expiry_date,
+                    start_after_first_use=body.start_after_first_use,
+                    start_after_days=body.duration_days if body.start_after_first_use else 0,
+                    enabled=body.enabled,
+                    comment=body.comment,
+                    inbound_ids=body.inbound_ids,
+                    limit_ip=body.limit_ip,
+                    sub_id=sub_id,
+                    group_name=body.group,
+                    hwid_limit=body.hwid_limit,
+                    traffic_reset=body.traffic_reset,
+                    auto_renew=body.auto_renew,
+                    renew_on_day=body.renew_on_day,
+                    max_renewals=body.max_renewals,
+                ),
+                xui_session,
+            )
+            created.append(result["user"])
+        except HTTPException as exc:
+            errors.append({"username": username, "detail": str(exc.detail)})
+        except Exception as exc:
+            errors.append({"username": username, "detail": str(exc)})
+
+    return {"ok": not errors, "created": created, "errors": errors}

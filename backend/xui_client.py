@@ -810,6 +810,12 @@ class XUIClient:
         inbound_ids: list[int],
         enabled: bool,
         tg_id: int = 0,
+        sub_id: str = "",
+        hwid_limit: int = 0,
+        reset: int = 0,
+        auto_renew: int = 0,
+        renew_on_day: int = 0,
+        max_renewals: int = 0,
     ) -> dict:
 
         email = str(
@@ -849,7 +855,9 @@ class XUIClient:
         )
 
 
-        sub_id = (
+        generated_sub_id = (
+            str(sub_id or "").strip()
+            or
             secrets
             .token_urlsafe(9)
             .replace("-", "")
@@ -909,10 +917,22 @@ class XUIClient:
                 ),
 
             "subId":
-                sub_id,
+                generated_sub_id,
 
             "reset":
-                0,
+                max(0, int(reset or 0)),
+
+            "limitHwid":
+                max(0, int(hwid_limit or 0)),
+
+            "autoRenew":
+                max(0, int(auto_renew or 0)),
+
+            "renewOnDay":
+                max(0, int(renew_on_day or 0)),
+
+            "maxRenewals":
+                max(0, int(max_renewals or 0)),
 
             "comment":
                 str(
@@ -1021,7 +1041,7 @@ class XUIClient:
                         client_uuid,
 
                     "sub_id":
-                        sub_id,
+                        generated_sub_id,
 
                     "email":
                         email,
@@ -1100,7 +1120,7 @@ class XUIClient:
                     client_uuid,
 
                 "sub_id":
-                    sub_id,
+                    generated_sub_id,
 
                 "email":
                     email,

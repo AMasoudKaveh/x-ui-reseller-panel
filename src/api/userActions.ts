@@ -100,3 +100,14 @@ export async function revokeSubscription(clientId: number): Promise<void> {
 export async function removeUser(clientId: number): Promise<void> {
   await request(`/api/reseller/users/${clientId}`, { method: "DELETE" });
 }
+
+export async function removeUsersBulk(clientIds: number[]): Promise<{
+  ok: boolean;
+  deleted: Array<{ id: number; username: string }>;
+  errors: Array<{ id: number; detail: string }>;
+}> {
+  return request("/api/reseller/users/bulk-delete", {
+    method: "POST",
+    body: JSON.stringify({ client_ids: clientIds }),
+  });
+}
