@@ -61,6 +61,20 @@ from backend.reseller_user_actions import (
     user_access,
     user_details,
 )
+from backend.admin_representatives import (
+    RepresentativeCreateBody,
+    RepresentativeStatusBody,
+    RepresentativeUpdateBody,
+)
+from backend.reseller_representatives import (
+    create_child as create_sub_representative,
+    delete_child as delete_sub_representative,
+    list_children as list_sub_representatives,
+    preview_child_deletion as preview_sub_representative_deletion,
+    reset_child_usage as reset_sub_representative_usage,
+    set_child_status as set_sub_representative_status,
+    update_child as update_sub_representative,
+)
 
 
 router = APIRouter(
@@ -95,6 +109,11 @@ FULL_SCOPES = (
     "users:reset",
     "users:revoke",
     "users:delete",
+    "representatives:read",
+    "representatives:create",
+    "representatives:update",
+    "representatives:reset",
+    "representatives:delete",
 )
 
 
@@ -1166,6 +1185,108 @@ def api_inbounds(
     )
 
 
+@router.get("/representatives")
+def api_representatives(
+    principal: ApiPrincipal = Depends(require_scope("representatives:read")),
+):
+    return call_panel_route(
+        principal,
+        "representatives.list",
+        lambda token: list_sub_representatives(xui_session=token),
+    )
+
+
+@router.post("/representatives")
+def api_create_representative(
+    body: RepresentativeCreateBody,
+    principal: ApiPrincipal = Depends(require_scope("representatives:create")),
+):
+    return call_panel_route(
+        principal,
+        "representatives.create",
+        lambda token: create_sub_representative(body=body, xui_session=token),
+    )
+
+
+@router.patch("/representatives/{representative_id}")
+def api_update_representative(
+    representative_id: int,
+    body: RepresentativeUpdateBody,
+    principal: ApiPrincipal = Depends(require_scope("representatives:update")),
+):
+    return call_panel_route(
+        principal,
+        "representatives.update",
+        lambda token: update_sub_representative(
+            child_id=representative_id,
+            body=body,
+            xui_session=token,
+        ),
+    )
+
+
+@router.post("/representatives/{representative_id}/status")
+def api_set_representative_status(
+    representative_id: int,
+    body: RepresentativeStatusBody,
+    principal: ApiPrincipal = Depends(require_scope("representatives:update")),
+):
+    return call_panel_route(
+        principal,
+        "representatives.status",
+        lambda token: set_sub_representative_status(
+            child_id=representative_id,
+            body=body,
+            xui_session=token,
+        ),
+    )
+
+
+@router.post("/representatives/{representative_id}/reset-usage")
+def api_reset_representative_usage(
+    representative_id: int,
+    principal: ApiPrincipal = Depends(require_scope("representatives:reset")),
+):
+    return call_panel_route(
+        principal,
+        "representatives.reset_usage",
+        lambda token: reset_sub_representative_usage(
+            child_id=representative_id,
+            xui_session=token,
+        ),
+    )
+
+
+@router.get("/representatives/{representative_id}/deletion-preview")
+def api_representative_deletion_preview(
+    representative_id: int,
+    principal: ApiPrincipal = Depends(require_scope("representatives:delete")),
+):
+    return call_panel_route(
+        principal,
+        "representatives.deletion_preview",
+        lambda token: preview_sub_representative_deletion(
+            child_id=representative_id,
+            xui_session=token,
+        ),
+    )
+
+
+@router.delete("/representatives/{representative_id}")
+def api_delete_representative(
+    representative_id: int,
+    principal: ApiPrincipal = Depends(require_scope("representatives:delete")),
+):
+    return call_panel_route(
+        principal,
+        "representatives.delete",
+        lambda token: delete_sub_representative(
+            child_id=representative_id,
+            xui_session=token,
+        ),
+    )
+
+
 @router.get("/users")
 def api_users(
     principal: ApiPrincipal = Depends(
@@ -1961,6 +2082,47 @@ def public_api_openapi(
             ),
         },
 
+        ("GET", "/api/v1/representatives"): {
+            "summary": "List direct sub-representatives",
+            "description": "Returns the direct representatives owned by the authenticated representative.",
+        },
+
+        ("POST", "/api/v1/representatives"): {
+            "summary": "Create sub-representative",
+            "description": (
+                "Creates a direct sub-representative using the same validation, "
+                "inbound restrictions and quota behavior as the reseller panel."
+            ),
+        },
+
+        ("PATCH", "/api/v1/representatives/{representative_id}"): {
+            "summary": "Update sub-representative",
+            "description": "Updates a directly owned representative using panel permissions.",
+        },
+
+        ("POST", "/api/v1/representatives/{representative_id}/status"): {
+            "summary": "Change representative status",
+            "description": "Activates or suspends a directly owned representative and applies cascading access rules.",
+        },
+
+        ("POST", "/api/v1/representatives/{representative_id}/reset-usage"): {
+            "summary": "Reset representative quota period",
+            "description": "Starts a new quota period without removing historical traffic from ancestors.",
+        },
+
+        ("GET", "/api/v1/representatives/{representative_id}/deletion-preview"): {
+            "summary": "Preview branch deletion",
+            "description": "Lists all descendant representatives and x-ui users affected by cascade deletion.",
+        },
+
+        ("DELETE", "/api/v1/representatives/{representative_id}"): {
+            "summary": "Delete representative branch",
+            "description": (
+                "Deletes a directly owned representative, all descendants and their users from x-ui. "
+                "Historical traffic remains charged to living ancestors."
+            ),
+        },
+
         ("GET", "/api/v1/users"): {
             "summary": "List users",
             "description": (
@@ -2103,6 +2265,26 @@ def public_api_openapi(
             "inbound_ids": [1, 2],
             "limit_ip": 2,
             "telegram_user_id": "123456789",
+        }
+
+    representative_create_schema = components.get("RepresentativeCreateBody")
+    if representative_create_schema is not None:
+        representative_create_schema["example"] = {
+            "username": "sub_reseller_01",
+            "password": "StrongPassword123!",
+            "quota_bytes": 53687091200,
+            "status": "Active",
+            "inbound_ids": [1, 2],
+        }
+
+    representative_update_schema = components.get("RepresentativeUpdateBody")
+    if representative_update_schema is not None:
+        representative_update_schema["example"] = {
+            "username": "sub_reseller_01",
+            "password": "",
+            "quota_bytes": 107374182400,
+            "status": "Active",
+            "inbound_ids": [1, 2],
         }
 
     patch_schema = components.get(

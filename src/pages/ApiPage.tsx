@@ -34,7 +34,12 @@ const scopeLabels: Record<string, string> = {
   "users:update": "Modify, enable and disable users",
   "users:reset": "Reset user traffic",
   "users:revoke": "Revoke subscriptions",
-  "users:delete": "Delete users"
+  "users:delete": "Delete users",
+  "representatives:read": "View sub-representatives",
+  "representatives:create": "Create sub-representatives",
+  "representatives:update": "Modify and suspend sub-representatives",
+  "representatives:reset": "Reset sub-representative usage periods",
+  "representatives:delete": "Delete representative branches and x-ui users"
 };
 
 

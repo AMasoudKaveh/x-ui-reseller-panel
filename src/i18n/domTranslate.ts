@@ -373,6 +373,21 @@ const EXACT_FA: Record<string, string> = {
   "Delete users":
     "حذف کاربران",
 
+  "View sub-representatives":
+    "مشاهده زیرنمایندگان",
+
+  "Create sub-representatives":
+    "ساخت زیرنمایندگان",
+
+  "Modify and suspend sub-representatives":
+    "ویرایش و تعلیق زیرنمایندگان",
+
+  "Reset sub-representative usage periods":
+    "شروع دوره مصرف جدید برای زیرنماینده",
+
+  "Delete representative branches and x-ui users":
+    "حذف شاخه نمایندگی و کاربران آن از X-UI",
+
   "View administrator profile":
     "مشاهده پروفایل ادمین",
 
