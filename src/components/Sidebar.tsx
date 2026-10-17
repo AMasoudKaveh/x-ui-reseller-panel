@@ -70,7 +70,7 @@ const nav = [
 
   {
     icon: UserRound,
-    label: "Representatives",
+    labelKey: "nav.representatives" as const,
     page: "representatives" as AppPage
   },
 
