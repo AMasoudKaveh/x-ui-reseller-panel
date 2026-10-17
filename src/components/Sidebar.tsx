@@ -69,6 +69,12 @@ const nav = [
   },
 
   {
+    icon: UserRound,
+    label: "Representatives",
+    page: "representatives" as AppPage
+  },
+
+  {
     icon: KeyRound,
     labelKey: "nav.api" as const,
     page: "api" as AppPage

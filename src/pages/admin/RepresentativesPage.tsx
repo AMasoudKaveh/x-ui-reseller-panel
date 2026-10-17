@@ -29,6 +29,13 @@ import {
   resetAdminRepresentativeUsage,
   setAdminRepresentativeStatus,
   updateAdminRepresentative,
+  createResellerRepresentative,
+  deleteResellerRepresentative,
+  getResellerRepresentativeInbounds,
+  getResellerRepresentatives,
+  resetResellerRepresentativeUsage,
+  setResellerRepresentativeStatus,
+  updateResellerRepresentative,
   type AdminInbound,
   type AdminRepresentative,
   type AdminRepresentativeStatus,
@@ -53,7 +60,8 @@ function protocolLabel(item: AdminInbound): string {
     .toUpperCase();
 }
 
-export default function RepresentativesPage() {
+export default function RepresentativesPage({scope="admin"}:{scope?:"admin"|"reseller"}) {
+  const isReseller = scope === "reseller";
   const [rows, setRows] = useState<AdminRepresentative[]>([]);
   const [inbounds, setInbounds] = useState<AdminInbound[]>([]);
   const [search, setSearch] = useState("");
@@ -75,7 +83,7 @@ export default function RepresentativesPage() {
   const loadRows = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const result = await getAdminRepresentatives();
+      const result = await (isReseller ? getResellerRepresentatives() : getAdminRepresentatives());
       setRows(result.representatives);
       setArchivedUsedBytes(result.archived_used_bytes);
     } catch (error) {
@@ -87,7 +95,7 @@ export default function RepresentativesPage() {
 
   const loadInbounds = async (silent = false) => {
     try {
-      setInbounds(await getAdminInbounds());
+      setInbounds(await (isReseller ? getResellerRepresentativeInbounds() : getAdminInbounds()));
     } catch (error) {
       if (!silent) {
         showToast(error instanceof Error ? error.message : "Unable to load inbounds");
@@ -131,12 +139,14 @@ export default function RepresentativesPage() {
   }, [rows,search,sortKey]);
 
   const active = rows.filter(r=>r.status==="Active").length;
-  const totalUsed = rows.reduce((s,r)=>s+r.used_bytes,0) + archivedUsedBytes;
+  // Subtree usage is intentionally repeated on ancestors for quota charging;
+  // global traffic must sum direct usage only to avoid double counting.
+  const totalUsed = rows.reduce((s,r)=>s+(r.direct_used_bytes??r.used_bytes),0) + archivedUsedBytes;
 
   const updateStatus = async (rep: AdminRepresentative) => {
     try {
-      const nextStatus: AdminRepresentativeStatus = rep.status === "Active" ? "Suspended" : "Active";
-      await setAdminRepresentativeStatus(rep.id, nextStatus);
+      const nextStatus: AdminRepresentativeStatus = rep.raw_status === "active" ? "Suspended" : "Active";
+      await (isReseller ? setResellerRepresentativeStatus(rep.id, nextStatus) : setAdminRepresentativeStatus(rep.id, nextStatus));
       await loadRows(true);
       showToast(nextStatus === "Active" ? "Representative Activated" : "Representative Suspended");
     } catch (error) {
@@ -146,7 +156,7 @@ export default function RepresentativesPage() {
 
   const remove = async (rep: AdminRepresentative) => {
     try {
-      await deleteAdminRepresentative(rep.id);
+      await (isReseller ? deleteResellerRepresentative(rep.id) : deleteAdminRepresentative(rep.id));
       await loadRows(true);
       showToast("Representative Removed");
     } catch (error) {
@@ -156,7 +166,7 @@ export default function RepresentativesPage() {
 
   const resetUsage = async (rep: AdminRepresentative) => {
     try {
-      await resetAdminRepresentativeUsage(rep.id);
+      await (isReseller ? resetResellerRepresentativeUsage(rep.id) : resetAdminRepresentativeUsage(rep.id));
       await loadRows(true);
       showToast("Usage Reset");
     } catch (error) {
@@ -167,7 +177,7 @@ export default function RepresentativesPage() {
   return (
     <>
       <header className="page-header users-header">
-        <div><div className="page-title-row"><h1>Representatives</h1><span className="help-chip">?</span></div><p>Manage reseller accounts, quota and inbound access</p></div>
+        <div><div className="page-title-row"><h1>{isReseller?"Sub-representatives":"Representatives"}</h1><span className="help-chip">?</span></div><p>{isReseller?"Manage your direct reseller network and subtree traffic":"Manage reseller accounts, quota and inbound access"}</p></div>
         <button className="up-create-button" type="button" onClick={()=>setCreateOpen(true)}><Plus size={20}/>Create Representative</button>
       </header>
 
@@ -196,10 +206,10 @@ export default function RepresentativesPage() {
             const quotaGB = bytesToGB(rep.quota_bytes);
             const pct = quotaGB > 0 ? Math.min(100, usedGB / quotaGB * 100) : 0;
             return <div className="rp-row" key={rep.id}>
-              <div className="rp-name"><span className={`rp-presence ${rep.status==="Active"?"active":""}`}/><div><strong>{rep.username}</strong><span>R-{rep.id} · {rep.created_at}</span></div></div>
-              <div><span className={`rp-status-pill ${rep.status==="Active"?"active":"suspended"}`}>{rep.status==="Active"?<Wifi size={13}/>:<Ban size={13}/>} {rep.status}</span></div>
-              <div className="rp-usage"><div className="up-usage-progress"><div className="up-usage-fill" style={{width:`${pct}%`}}/></div><div className="up-usage-line"><span>{usedGB.toFixed(1)} / {quotaGB.toFixed(1)} GB</span><span>{pct.toFixed(0)}%</span></div></div>
-              <div className="rp-users"><strong>{rep.users}</strong><span>{rep.online} online</span></div>
+              <div className="rp-name"><span className={`rp-presence ${rep.status==="Active"?"active":""}`}/><div><strong>{rep.username}</strong><span>R-{rep.id} · {rep.created_at}{rep.parent_username?` · Parent: ${rep.parent_username}`:" · Admin root"}</span></div></div>
+              <div><span className={`rp-status-pill ${rep.status==="Active"?"active":"suspended"}`}>{rep.status==="Active"?<Wifi size={13}/>:<Ban size={13}/>} {rep.ancestor_locked?"Upstream blocked":rep.status}</span></div>
+              <div className="rp-usage"><div className="up-usage-progress"><div className="up-usage-fill" style={{width:`${pct}%`}}/></div><div className="up-usage-line"><span>{usedGB.toFixed(1)} / {quotaGB.toFixed(1)} GB</span><span>{pct.toFixed(0)}%</span></div><small>Lifetime: direct {bytesToGB(rep.direct_used_bytes||0).toFixed(1)} · network {bytesToGB(rep.descendant_used_bytes||0).toFixed(1)} GB</small></div>
+              <div className="rp-users"><strong>{rep.users}</strong><span>{rep.online} online · {rep.descendant_count||0} sub-reps</span></div>
               <div className="rp-inbounds"><Server size={15}/><strong>{rep.inbound_ids.length}</strong><span>assigned</span></div>
               <div className="up-actions" onClick={e=>e.stopPropagation()}>
                 <button type="button" title="Details" onClick={()=>setDetails(rep)}><Eye size={18}/></button>
@@ -208,7 +218,7 @@ export default function RepresentativesPage() {
                     <button type="button" onClick={()=>{setModify(rep);setMenuFor(null)}}><PencilLine size={18}/><span>Modify</span></button>
                     <button type="button" onClick={()=>{setMenuFor(null);void resetUsage(rep)}}><RefreshCcw size={18}/><span>Reset Usage</span></button>
                     <div className="ua-menu-divider"/>
-                    <button type="button" className="ua-warning" onClick={()=>{setMenuFor(null);void updateStatus(rep)}}><Ban size={18}/><span>{rep.status==="Active"?"Suspend":"Activate"}</span></button>
+                    <button type="button" className="ua-warning" onClick={()=>{setMenuFor(null);void updateStatus(rep)}}><Ban size={18}/><span>{rep.raw_status==="active"?"Suspend":"Activate"}</span></button>
                     <button type="button" className="ua-danger" onClick={()=>{setMenuFor(null);void remove(rep)}}><Trash2 size={18}/><span>Remove</span></button>
                   </div>}
                 </div>
@@ -229,10 +239,13 @@ export default function RepresentativesPage() {
         onClose={()=>setCreateOpen(false)}
         onSubmit={async(input)=>{
           try {
-            await createAdminRepresentative({
+            await (isReseller ? createResellerRepresentative({
               ...input,
               password: input.password || "",
-            });
+            }) : createAdminRepresentative({
+              ...input,
+              password: input.password || "",
+            }));
             setCreateOpen(false);
             await loadRows(true);
             showToast("Representative Created");
@@ -251,7 +264,7 @@ export default function RepresentativesPage() {
         onSubmit={async(input)=>{
           if (!modify) return;
           try {
-            await updateAdminRepresentative(modify.id, input);
+            await (isReseller ? updateResellerRepresentative(modify.id, input) : updateAdminRepresentative(modify.id, input));
             setModify(null);
             await loadRows(true);
             showToast("Representative Updated");
@@ -291,7 +304,7 @@ function RepresentativeModal({open,mode,initial,inbounds,onClose,onSubmit}:{open
     setUsername(initial?.username??"");
     setPassword("");
     setQuota(String(initial ? bytesToGB(initial.quota_bytes) : 500));
-    setStatus(initial?.status??"Active");
+    setStatus(initial ? (initial.raw_status === "active" || initial.quota_locked ? "Active" : "Suspended") : "Active");
     setSelected(initial?.inbound_ids??[]);
     setQuery("");
     setFormError("");

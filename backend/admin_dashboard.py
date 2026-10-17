@@ -89,10 +89,11 @@ def _representatives(con) -> list[dict[str, Any]]:
         quota = max(0, int(item.get("quota_bytes") or 0))
         used = max(0, int(item.get("used_bytes") or 0))
         quota_locked = bool(int(item.get("quota_locked") or 0))
+        ancestor_locked = bool(int(item.get("ancestor_locked") or 0))
         raw_status = str(item.get("status") or "active").strip().lower()
         visible_status = (
             "Active"
-            if raw_status == "active" and not quota_locked
+            if raw_status == "active" and not quota_locked and not ancestor_locked
             else "Suspended"
         )
 
@@ -102,12 +103,15 @@ def _representatives(con) -> list[dict[str, Any]]:
                 "username": str(item.get("username") or ""),
                 "quota_bytes": quota,
                 "used_bytes": used,
+                "direct_used_bytes": max(0, int(item.get("direct_used_bytes") or 0)),
+                "descendant_used_bytes": max(0, int(item.get("descendant_used_bytes") or 0)),
                 "remaining_bytes": max(0, quota - used),
                 "users": users,
                 "online": online,
                 "status": visible_status,
                 "raw_status": raw_status,
                 "quota_locked": quota_locked,
+                "ancestor_locked": ancestor_locked,
             }
         )
 
@@ -192,7 +196,7 @@ def admin_dashboard(
     clients = sum(int(item["users"]) for item in representatives)
     online = sum(int(item["online"]) for item in representatives)
     quota_bytes = sum(int(item["quota_bytes"]) for item in representatives)
-    used_bytes = sum(int(item["used_bytes"]) for item in representatives) + archived_used_bytes
+    used_bytes = sum(int(item.get("direct_used_bytes", item["used_bytes"]) or 0) for item in representatives) + archived_used_bytes
     remaining_bytes = sum(int(item["remaining_bytes"]) for item in representatives)
 
     # Keep the compact dashboard list useful without changing its UI height.

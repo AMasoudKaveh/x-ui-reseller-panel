@@ -21,6 +21,9 @@ import ApiPage
 import LoginPage
   from "./pages/LoginPage";
 
+import RepresentativesPage
+  from "./pages/admin/RepresentativesPage";
+
 import AdminLoginPage
   from "./pages/admin/AdminLoginPage";
 
@@ -45,6 +48,7 @@ import {
 export type AppPage =
   | "dashboard"
   | "users"
+  | "representatives"
   | "api"
   | "settings";
 
@@ -70,6 +74,14 @@ AppPage {
   const hash =
     window.location.hash;
 
+
+  if (
+    hash.startsWith(
+      "#/reseller/representatives"
+    )
+  ) {
+    return "representatives";
+  }
 
   if (
     hash.startsWith(
@@ -205,6 +217,12 @@ function ResellerPanel({
           page === "users"
           &&
           <UsersPage />
+        }
+
+        {
+          page === "representatives"
+          &&
+          <RepresentativesPage scope="reseller" />
         }
 
 

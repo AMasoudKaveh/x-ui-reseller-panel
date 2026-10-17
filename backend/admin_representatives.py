@@ -101,6 +101,17 @@ def ensure_admin_schema() -> None:
         ensure_column(con, "representatives", "quota_prev_status", "TEXT")
         ensure_column(con, "representatives", "quota_last_reconciled_at", "TEXT")
         ensure_column(con, "representatives", "deleted_at", "TEXT")
+        # NULL identifies a top-level representative created by an admin.
+        # Nested representatives point at their immediate reseller parent.
+        ensure_column(con, "representatives", "parent_rep_id", "INTEGER")
+        ensure_column(con, "representatives", "direct_used_bytes", "INTEGER NOT NULL DEFAULT 0")
+        ensure_column(con, "representatives", "descendant_used_bytes", "INTEGER NOT NULL DEFAULT 0")
+        ensure_column(con, "representatives", "ancestor_locked", "INTEGER NOT NULL DEFAULT 0")
+        ensure_column(con, "representatives", "ancestor_locked_by", "INTEGER")
+        ensure_column(con, "representatives", "usage_baseline_bytes", "INTEGER NOT NULL DEFAULT 0")
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_representatives_parent_rep_id ON representatives(parent_rep_id)"
+        )
 
         con.execute(
             """
@@ -345,7 +356,23 @@ def rep_payload(con: sqlite3.Connection, row: sqlite3.Row | dict[str, Any]) -> d
 
     raw_status = str(rep.get("status") or "active").lower()
     quota_locked = bool(int(rep.get("quota_locked") or 0))
-    visible_status = "Active" if raw_status == "active" and not quota_locked else "Suspended"
+    ancestor_locked = bool(int(rep.get("ancestor_locked") or 0))
+    visible_status = "Active" if raw_status == "active" and not quota_locked and not ancestor_locked else "Suspended"
+    child_row = con.execute(
+        "SELECT COUNT(*) AS total FROM representatives WHERE parent_rep_id=? AND COALESCE(deleted_at,'')=''",
+        (rep_id,),
+    ).fetchone()
+    child_count = int(child_row["total"] or 0) if child_row else 0
+    descendant_row = con.execute(
+        """WITH RECURSIVE tree(id) AS (
+           SELECT id FROM representatives WHERE parent_rep_id=? AND COALESCE(deleted_at,'')=''
+           UNION ALL SELECT r.id FROM representatives r JOIN tree t ON r.parent_rep_id=t.id
+           WHERE COALESCE(r.deleted_at,'')='') SELECT COUNT(*) AS total FROM tree""",
+        (rep_id,),
+    ).fetchone()
+    descendant_count = int(descendant_row["total"] or 0) if descendant_row else 0
+    parent_id = int(rep.get("parent_rep_id") or 0)
+    parent_row = con.execute("SELECT username FROM representatives WHERE id=?", (parent_id,)).fetchone() if parent_id else None
 
     raw_allowed = rep.get("allowed_inbound_ids")
     # NULL/empty on legacy rows means unrestricted. For the admin UI we return
@@ -364,11 +391,19 @@ def rep_payload(con: sqlite3.Connection, row: sqlite3.Row | dict[str, Any]) -> d
         "username": str(rep.get("username") or ""),
         "quota_bytes": max(0, int(rep.get("quota_bytes") or 0)),
         "used_bytes": max(0, int(rep.get("used_bytes") or 0)),
+        "direct_used_bytes": max(0, int(rep.get("direct_used_bytes") or 0)),
+        "descendant_used_bytes": max(0, int(rep.get("descendant_used_bytes") or 0)),
         "users": total_users,
         "online": online,
         "status": visible_status,
         "raw_status": raw_status,
         "quota_locked": quota_locked,
+        "ancestor_locked": ancestor_locked,
+        "ancestor_locked_by": int(rep.get("ancestor_locked_by") or 0) or None,
+        "parent_rep_id": int(rep.get("parent_rep_id") or 0) or None,
+        "parent_username": str(parent_row["username"] or "") if parent_row else "",
+        "child_count": child_count,
+        "descendant_count": descendant_count,
         "inbound_ids": allowed,
         "created_at": date_label(rep.get("created_at")),
         "updated_at": date_label(rep.get("updated_at") or rep.get("created_at")),
@@ -381,6 +416,25 @@ def invalidate_rep_sessions(con: sqlite3.Connection, rep_id: int) -> None:
             "DELETE FROM auth_sessions WHERE role='reseller' AND account_id=?",
             (int(rep_id),),
         )
+
+
+def restrict_descendant_inbounds(con: sqlite3.Connection, rep_id: int, allowed_ids: list[int]) -> None:
+    """Recursively ensure a child never retains permissions removed upstream."""
+    allowed = set(normalize_inbound_ids(allowed_ids))
+    children = con.execute(
+        "SELECT id,allowed_inbound_ids FROM representatives WHERE parent_rep_id=? AND COALESCE(deleted_at,'')=''",
+        (rep_id,),
+    ).fetchall()
+    for row in children:
+        child_id = int(row["id"])
+        raw = row["allowed_inbound_ids"]
+        child_allowed = allowed if raw in (None, "") else set(parse_inbound_ids(raw))
+        restricted = sorted(child_allowed & allowed)
+        con.execute(
+            "UPDATE representatives SET allowed_inbound_ids=?,updated_at=? WHERE id=?",
+            (json.dumps(restricted), now_text(), child_id),
+        )
+        restrict_descendant_inbounds(con, child_id, restricted)
 
 
 def _panel_set_enabled(local: dict[str, Any], enabled: bool) -> None:
@@ -1073,6 +1127,7 @@ def update_representative(
             """,
             tuple(params),
         )
+        restrict_descendant_inbounds(con, rep_id, inbound_ids)
 
         if password or username != str(current.get("username") or ""):
             invalidate_rep_sessions(con, rep_id)
@@ -1192,37 +1247,28 @@ def reset_representative_usage(
 ):
     require_admin(xui_session)
     ensure_admin_schema()
+    from backend.reseller_live_quota import sync_all
+    sync_result = sync_all(True)
+    if not sync_result.get("ok") or sync_result.get("skipped"):
+        raise HTTPException(status_code=502, detail="Verified traffic sync failed; usage was not reset")
 
     with connect_db() as con:
         get_rep(con, rep_id)
-
-        if table_exists(con, "traffic_ledger") and table_exists(con, "clients"):
-            con.execute(
-                """
-                UPDATE traffic_ledger
-                SET cumulative_used_bytes=0
-                WHERE client_id IN (
-                    SELECT id FROM clients WHERE seller_rep_id=?
-                )
-                """,
-                (rep_id,),
-            )
-
-        if table_exists(con, "deleted_client_usage"):
-            deleted_cols = columns(con, "deleted_client_usage")
-            if "seller_rep_id" in deleted_cols and "cumulative_used_bytes" in deleted_cols:
-                con.execute(
-                    """
-                    UPDATE deleted_client_usage
-                    SET cumulative_used_bytes=0
-                    WHERE seller_rep_id=?
-                    """,
-                    (rep_id,),
-                )
-
+        client_ids = {int(row["id"]) for row in con.execute(
+            """WITH RECURSIVE tree(id) AS (SELECT id FROM representatives WHERE id=? UNION ALL
+               SELECT r.id FROM representatives r JOIN tree t ON r.parent_rep_id=t.id)
+               SELECT c.id FROM clients c JOIN tree t ON c.seller_rep_id=t.id WHERE COALESCE(c.status,'')!='deleted'""",
+            (rep_id,),
+        ).fetchall()}
+        if client_ids - set(sync_result.get("verified_client_ids") or []):
+            raise HTTPException(status_code=502, detail="Some subtree client traffic could not be verified; usage was not reset")
+        from backend.reseller_live_quota import representative_usage_tree
+        _, raw_subtree, _ = representative_usage_tree(con)
+        # Reset only this representative's quota period. The immutable traffic
+        # ledger remains intact, so all ancestors keep charging the same bytes.
         con.execute(
-            "UPDATE representatives SET used_bytes=0, updated_at=? WHERE id=?",
-            (now_text(), rep_id),
+            "UPDATE representatives SET usage_baseline_bytes=?,used_bytes=0,updated_at=? WHERE id=?",
+            (max(0, int(raw_subtree.get(rep_id, 0))), now_text(), rep_id),
         )
         con.commit()
 
@@ -1249,6 +1295,21 @@ def delete_representative(
 ):
     require_admin(xui_session)
     ensure_admin_schema()
+    from backend.reseller_live_quota import sync_all
+    sync_result = sync_all(True)
+    if not sync_result.get("ok") or sync_result.get("skipped"):
+        raise HTTPException(status_code=502, detail="Verified traffic sync failed; representative was not deleted")
+    with connect_db() as con:
+        if con.execute(
+            "SELECT 1 FROM representatives WHERE parent_rep_id=? AND COALESCE(deleted_at,'')='' LIMIT 1",
+            (rep_id,),
+        ).fetchone():
+            raise HTTPException(status_code=409, detail="Remove this representative's sub-representatives first")
+        client_ids = {int(row["id"]) for row in con.execute(
+            "SELECT id FROM clients WHERE seller_rep_id=? AND COALESCE(status,'')!='deleted'", (rep_id,)
+        ).fetchall()}
+        if client_ids - set(sync_result.get("verified_client_ids") or []):
+            raise HTTPException(status_code=502, detail="Some client traffic could not be verified; representative was not deleted")
 
     # First make sure every currently eligible x-ui client is disabled.  We do
     # not remove clients from x-ui here; the primary x-ui panel remains the
@@ -1266,7 +1327,8 @@ def delete_representative(
         rep = get_rep(con, rep_id)
         username = str(rep.get("username") or "")
         quota_bytes = max(0, int(rep.get("quota_bytes") or 0))
-        used_bytes = max(0, int(rep.get("used_bytes") or 0))
+        from backend.reseller_live_quota import representative_usage
+        used_bytes = max(0, int(representative_usage(con, rep_id)))
 
         client_rows: list[dict[str, Any]] = []
         if table_exists(con, "clients"):
@@ -1294,33 +1356,11 @@ def delete_representative(
                     if row:
                         cumulative = max(0, int(row["cumulative_used_bytes"] or 0))
 
-                con.execute(
-                    """
-                    INSERT INTO deleted_client_usage(
-                        client_id,email,seller_rep_id,owner_rep_id,
-                        cumulative_used_bytes,deleted_at,reason
-                    )
-                    VALUES(?,?,?,?,?,?,?)
-                    ON CONFLICT(email) DO UPDATE SET
-                      client_id=excluded.client_id,
-                      seller_rep_id=excluded.seller_rep_id,
-                      owner_rep_id=excluded.owner_rep_id,
-                      cumulative_used_bytes=MAX(
-                          deleted_client_usage.cumulative_used_bytes,
-                          excluded.cumulative_used_bytes
-                      ),
-                      deleted_at=excluded.deleted_at,
-                      reason=excluded.reason
-                    """,
-                    (
-                        client_id,
-                        email,
-                        rep_id,
-                        int(local.get("owner_rep_id") or rep_id),
-                        cumulative,
-                        now_text(),
-                        "representative_deleted",
-                    ),
+                from backend.reseller_live_quota import archive_deleted_usage
+                archive_deleted_usage(
+                    con, client_id=client_id, email=email, seller_rep_id=rep_id,
+                    owner_rep_id=int(local.get("owner_rep_id") or rep_id),
+                    cumulative_used_bytes=cumulative, reason="representative_deleted",
                 )
 
         con.execute(
@@ -1352,7 +1392,12 @@ def delete_representative(
 
         # Historical traffic_events are intentionally retained.  The admin
         # dashboard uses them for the 7-day traffic chart even after deletion.
-        con.execute("DELETE FROM representatives WHERE id=?", (rep_id,))
+        # Keep a hidden hierarchy node so a deleted nested representative's
+        # archived traffic still contributes to every living ancestor.
+        con.execute(
+            "UPDATE representatives SET username=username || '#deleted#' || id,status='deleted',deleted_at=?,updated_at=? WHERE id=?",
+            (now_text(), now_text(), rep_id),
+        )
         con.commit()
 
     return {

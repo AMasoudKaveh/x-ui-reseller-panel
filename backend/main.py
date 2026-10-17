@@ -275,6 +275,10 @@ def read_session(token: str | None):
 async def lifespan(_: FastAPI):
 
     init_db()
+    # Run backward-compatible representative hierarchy migrations before the
+    # first login request or background quota pass can touch the database.
+    from backend.admin_representatives import ensure_admin_schema
+    ensure_admin_schema()
 
     # Start quota/traffic enforcement inside the lifespan. FastAPI does not
     # run @app.on_event startup handlers when a lifespan handler is supplied.
@@ -394,7 +398,8 @@ def reseller_login(
                 id,
                 username,
                 password_hash,
-                status
+                status,
+                COALESCE(ancestor_locked,0) AS ancestor_locked
             FROM representatives
             WHERE username = ?
             """,
@@ -413,7 +418,7 @@ def reseller_login(
         )
 
 
-    if str(row["status"]).lower() != "active":
+    if str(row["status"]).lower() != "active" or int(row["ancestor_locked"] or 0):
 
         raise HTTPException(
             status_code=403,
@@ -487,7 +492,8 @@ def me(
                 """
                 SELECT
                     username,
-                    status
+                    status,
+                    COALESCE(ancestor_locked,0) AS ancestor_locked
                 FROM representatives
                 WHERE id = ?
                 """,
@@ -497,8 +503,8 @@ def me(
 
             if (
                 not account
-                or str(account["status"]).lower()
-                != "active"
+                or str(account["status"]).lower() != "active"
+                or int(account["ancestor_locked"] or 0)
             ):
 
                 raise HTTPException(
@@ -613,6 +619,12 @@ from backend.reseller_live_quota import (
 app.include_router(
     reseller_live_quota_router
 )
+
+from backend.reseller_representatives import (
+    router as reseller_representatives_router,
+)
+
+app.include_router(reseller_representatives_router)
 
 
 

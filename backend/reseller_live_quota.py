@@ -143,6 +143,12 @@ def ensure_live_schema() -> None:
             "quota_locked_at": "TEXT",
             "quota_prev_status": "TEXT",
             "quota_last_reconciled_at": "TEXT",
+            "parent_rep_id": "INTEGER",
+            "direct_used_bytes": "INTEGER NOT NULL DEFAULT 0",
+            "descendant_used_bytes": "INTEGER NOT NULL DEFAULT 0",
+            "ancestor_locked": "INTEGER NOT NULL DEFAULT 0",
+            "ancestor_locked_by": "INTEGER",
+            "usage_baseline_bytes": "INTEGER NOT NULL DEFAULT 0",
             "allowed_inbound_ids": "TEXT",
         }.items():
             add_column_if_missing(
@@ -237,6 +243,20 @@ def ensure_live_schema() -> None:
                 reason TEXT
             )
             """
+        )
+        # V2 stores one immutable row per deleted client lifecycle. The legacy
+        # table is unique by email and cannot safely represent username reuse.
+        con.execute(
+            """CREATE TABLE IF NOT EXISTS deleted_client_usage_v2(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id INTEGER,
+                email TEXT NOT NULL,
+                seller_rep_id INTEGER,
+                owner_rep_id INTEGER,
+                cumulative_used_bytes INTEGER NOT NULL DEFAULT 0,
+                deleted_at TEXT,
+                reason TEXT
+            )"""
         )
 
         con.commit()
@@ -1478,6 +1498,7 @@ def sync_one_client(
             total_limit,
         "own_limit_exhausted":
             bool(own_limit_exhausted),
+        "panel_ok": bool(state.get("ok")),
     }
 
 
@@ -1512,33 +1533,81 @@ def representative_usage(
 
     deleted_used = 0
 
-    if table_exists(
-        con,
-        "deleted_client_usage",
-    ):
-        row = con.execute(
-            """
-            SELECT COALESCE(
-                SUM(
-                    cumulative_used_bytes
-                ),
-                0
-            ) AS total
-            FROM deleted_client_usage
-            WHERE seller_rep_id=?
-            """,
-            (rep_id,),
-        ).fetchone()
-
-        deleted_used = int(
-            row["total"]
-            or 0
-        )
+    for archive_table in ("deleted_client_usage", "deleted_client_usage_v2"):
+        if table_exists(con, archive_table):
+            row = con.execute(
+                f"SELECT COALESCE(SUM(cumulative_used_bytes),0) AS total FROM {archive_table} WHERE seller_rep_id=?",
+                (rep_id,),
+            ).fetchone()
+            deleted_used += int(row["total"] or 0)
 
     return max(
         0,
         active_used + deleted_used,
     )
+
+
+def archive_deleted_usage(con: sqlite3.Connection, *, client_id: int, email: str,
+                          seller_rep_id: int, owner_rep_id: int,
+                          cumulative_used_bytes: int, reason: str) -> None:
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS deleted_client_usage_v2(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, client_id INTEGER,
+            email TEXT NOT NULL, seller_rep_id INTEGER, owner_rep_id INTEGER,
+            cumulative_used_bytes INTEGER NOT NULL DEFAULT 0,
+            deleted_at TEXT, reason TEXT)"""
+    )
+    con.execute(
+        """INSERT INTO deleted_client_usage_v2(
+           client_id,email,seller_rep_id,owner_rep_id,cumulative_used_bytes,deleted_at,reason)
+           VALUES(?,?,?,?,?,?,?)""",
+        (client_id, email, seller_rep_id, owner_rep_id,
+         max(0, cumulative_used_bytes), now_text(), reason),
+    )
+
+
+def representative_usage_tree(con: sqlite3.Connection) -> tuple[dict[int, int], dict[int, int], dict[int, list[int]]]:
+    """Return direct usage, subtree usage and descendants for every representative.
+
+    Traffic remains stored exactly once against the direct seller.  Subtree totals
+    are derived here, which prevents duplicated ledger events while still charging
+    every ancestor for real traffic generated below it.
+    """
+    # Deleted representatives remain as hidden accounting nodes so their
+    # archived client usage continues to roll up to the living parent.
+    rows = [dict(row) for row in con.execute(
+        "SELECT id,parent_rep_id FROM representatives"
+    ).fetchall()]
+    parent = {int(row["id"]): (int(row.get("parent_rep_id") or 0) or None) for row in rows}
+    children: dict[int, list[int]] = {rep_id: [] for rep_id in parent}
+    for rep_id, parent_id in parent.items():
+        if parent_id in children and parent_id != rep_id:
+            children[parent_id].append(rep_id)
+
+    direct = {rep_id: representative_usage(con, rep_id) for rep_id in parent}
+    subtree: dict[int, int] = {}
+    descendants: dict[int, list[int]] = {}
+
+    def visit(rep_id: int, trail: set[int]) -> int:
+        if rep_id in subtree:
+            return subtree[rep_id]
+        if rep_id in trail:  # Defensive guard for a manually-corrupted database.
+            subtree[rep_id] = direct.get(rep_id, 0)
+            descendants[rep_id] = []
+            return subtree[rep_id]
+        total = direct.get(rep_id, 0)
+        nested: list[int] = []
+        for child_id in children.get(rep_id, []):
+            total += visit(child_id, trail | {rep_id})
+            nested.append(child_id)
+            nested.extend(descendants.get(child_id, []))
+        subtree[rep_id] = max(0, total)
+        descendants[rep_id] = list(dict.fromkeys(nested))
+        return subtree[rep_id]
+
+    for rep_id in parent:
+        visit(rep_id, set())
+    return direct, subtree, descendants
 
 
 def mark_rep_locked(
@@ -1962,146 +2031,99 @@ def reconcile_quotas(
     xui: XUIClient,
 ) -> dict:
     ensure_live_schema()
-
     with connect_db() as con:
-        reps = [
-            dict(row)
-            for row in con.execute(
-                """
-                SELECT *
-                FROM representatives
-                ORDER BY id
-                """
-            ).fetchall()
-        ]
+        reps = [dict(row) for row in con.execute(
+            "SELECT * FROM representatives WHERE COALESCE(deleted_at,'')='' ORDER BY id"
+        ).fetchall()]
+        direct_usage, subtree_usage, _ = representative_usage_tree(con)
 
-    locked = []
-    restored = []
-    restore_failures = []
+    by_id = {to_int(rep.get("id"), 0): rep for rep in reps}
+    self_blocked: set[int] = set()
 
-    for rep in reps:
-        rep_id = to_int(
-            rep.get("id"),
-            0,
-        )
-
-        if rep_id <= 0:
-            continue
+    # used_bytes is the real usage of the complete subtree. Traffic itself is
+    # still recorded once, against its direct seller, in traffic_ledger.
+    for rep_id, rep in by_id.items():
+        direct = max(0, direct_usage.get(rep_id, 0))
+        raw_subtree_used = max(0, subtree_usage.get(rep_id, direct))
+        baseline = max(0, to_int(rep.get("usage_baseline_bytes"), 0))
+        used = max(0, raw_subtree_used - baseline)
+        quota = max(0, to_int(rep.get("quota_bytes"), 0))
+        exceeded = quota > 0 and used >= quota
+        was_locked = bool(to_int(rep.get("quota_locked"), 0))
+        status = str(rep.get("status") or "active")
 
         with connect_db() as con:
-            used = representative_usage(
-                con,
-                rep_id,
-            )
-
             con.execute(
-                """
-                UPDATE representatives
-                SET
-                    used_bytes=?,
-                    quota_last_reconciled_at=?,
-                    updated_at=?
-                WHERE id=?
-                """,
-                (
-                    used,
-                    now_text(),
-                    now_text(),
-                    rep_id,
-                ),
+                """UPDATE representatives SET used_bytes=?, direct_used_bytes=?,
+                   descendant_used_bytes=?, quota_last_reconciled_at=?, updated_at=?
+                   WHERE id=?""",
+                (used, direct, max(0, raw_subtree_used - direct), now_text(), now_text(), rep_id),
             )
-
             con.commit()
-
         rep["used_bytes"] = used
 
-        quota = max(
-            0,
-            to_int(
-                rep.get("quota_bytes"),
-                0,
-            ),
-        )
+        if exceeded and status == "active":
+            if not was_locked:
+                mark_rep_locked(rep)
+            rep["quota_locked"] = 1
+            rep["status"] = "quota_blocked"
+            status = "quota_blocked"
+        elif not exceeded and (was_locked or status == "quota_blocked"):
+            with connect_db() as con:
+                current = con.execute("SELECT * FROM representatives WHERE id=?", (rep_id,)).fetchone()
+            if current:
+                finalize_rep_unlock(dict(current))
+            rep["quota_locked"] = 0
+            status = str(rep.get("quota_prev_status") or "active")
+            rep["status"] = status
 
-        quota_locked = bool(
-            to_int(
-                rep.get("quota_locked"),
-                0,
+        if exceeded or status != "active":
+            self_blocked.add(rep_id)
+
+    parent = {rep_id: (to_int(rep.get("parent_rep_id"), 0) or None) for rep_id, rep in by_id.items()}
+    effective: dict[int, int | None] = {}
+
+    def blocker_for(rep_id: int, trail: set[int] | None = None) -> int | None:
+        if rep_id in effective:
+            return effective[rep_id]
+        trail = trail or set()
+        if rep_id in trail:
+            effective[rep_id] = rep_id
+        elif rep_id in self_blocked:
+            effective[rep_id] = rep_id
+        else:
+            parent_id = parent.get(rep_id)
+            effective[rep_id] = blocker_for(parent_id, trail | {rep_id}) if parent_id in by_id else None
+        return effective[rep_id]
+
+    locked_rep_ids: list[int] = []
+    restored: list[str] = []
+    failures: list[str] = []
+    for rep_id in by_id:
+        blocker = blocker_for(rep_id)
+        ancestor = blocker if blocker is not None and blocker != rep_id else None
+        with connect_db() as con:
+            con.execute(
+                "UPDATE representatives SET ancestor_locked=?, ancestor_locked_by=? WHERE id=?",
+                (1 if ancestor else 0, ancestor, rep_id),
             )
-        )
+            if blocker is not None and table_exists(con, "auth_sessions"):
+                con.execute("DELETE FROM auth_sessions WHERE role='reseller' AND account_id=?", (rep_id,))
+            con.commit()
 
-        status = str(
-            rep.get("status")
-            or "active"
-        )
-
-        exceeded = (
-            quota > 0
-            and used >= quota
-        )
-
-        if exceeded:
-            if not quota_locked:
-                # Only active accounts become quota-blocked. A manually
-                # inactive account remains an admin state and is not rewritten.
-                if status == "active":
-                    mark_rep_locked(rep)
-                    rep["quota_locked"] = 1
-                    rep["status"] = "quota_blocked"
-                    quota_locked = True
-                    locked.append(rep_id)
-
-            if quota_locked or status == "quota_blocked":
-                disabled = lock_eligible_clients(
-                    xui,
-                    rep_id,
-                )
-
-                if disabled:
-                    locked.append(rep_id)
-
-            continue
-
-        # Quota was increased / changed to unlimited.
-        if quota_locked or status == "quota_blocked":
-            restored_clients, failures = restore_quota_clients(
-                xui,
-                rep_id,
-            )
-
-            restored.extend(
-                restored_clients
-            )
-
-            restore_failures.extend(
-                failures
-            )
-
-            if not failures:
-                # Reload current rep because an admin may have changed status
-                # while the quota lock was active.
-                with connect_db() as con:
-                    current = con.execute(
-                        """
-                        SELECT *
-                        FROM representatives
-                        WHERE id=?
-                        """,
-                        (rep_id,),
-                    ).fetchone()
-
-                if current:
-                    finalize_rep_unlock(
-                        dict(current)
-                    )
+        if blocker is not None:
+            lock_eligible_clients(xui, rep_id)
+            locked_rep_ids.append(rep_id)
+        else:
+            restored_now, failed_now = restore_quota_clients(xui, rep_id)
+            restored.extend(restored_now)
+            failures.extend(failed_now)
 
     return {
-        "locked_rep_ids":
-            sorted(set(locked)),
-        "restored_clients":
-            restored,
-        "restore_failures":
-            restore_failures,
+        "locked_rep_ids": sorted(set(locked_rep_ids)),
+        "restored_clients": sorted(set(restored)),
+        "restore_failures": failures,
+        "subtree_usage": subtree_usage,
     }
 
 
@@ -2139,9 +2161,10 @@ def sync_all(
             "reason": "recent_sync",
         }
 
-    if not _SYNC_LOCK.acquire(
-        blocking=False
-    ):
+    # Destructive operations call force=True and must wait for the current
+    # background pass instead of proceeding with an unverified stale ledger.
+    acquired = _SYNC_LOCK.acquire(timeout=30) if force else _SYNC_LOCK.acquire(blocking=False)
+    if not acquired:
         return {
             "ok": True,
             "skipped": True,
@@ -2152,42 +2175,6 @@ def sync_all(
         ensure_live_schema()
 
         rows = load_clients()
-
-        if not rows:
-            with connect_db() as con:
-                reps = con.execute(
-                    """
-                    SELECT id
-                    FROM representatives
-                    """
-                ).fetchall()
-
-                for rep in reps:
-                    con.execute(
-                        """
-                        UPDATE representatives
-                        SET used_bytes=0,
-                            quota_last_reconciled_at=?,
-                            updated_at=?
-                        WHERE id=?
-                        """,
-                        (
-                            now_text(),
-                            now_text(),
-                            int(rep["id"]),
-                        ),
-                    )
-
-                con.commit()
-
-            _LAST_SYNC_AT = time.time()
-
-            return {
-                "ok": True,
-                "clients": 0,
-                "online": 0,
-                "quota": {},
-            }
 
         try:
             xui = XUIClient()
@@ -2203,12 +2190,10 @@ def sync_all(
             if str(row.get("email") or "").strip()
         ]
 
-        online_set = fetch_online_emails(
-            xui,
-            known,
-        )
+        online_set = fetch_online_emails(xui, known) if known else set()
 
         synced = []
+        failed_client_ids: list[int] = []
 
         for row in rows:
             try:
@@ -2223,6 +2208,7 @@ def sync_all(
 
             except Exception:
                 # One broken/missing X-UI client must not stop all other users.
+                failed_client_ids.append(to_int(row.get("id"), 0))
                 continue
 
         quota_result = reconcile_quotas(
@@ -2242,6 +2228,12 @@ def sync_all(
             "online_emails": sorted(
                 online_set
             ),
+            "verified_client_ids": [
+                int(item["id"]) for item in synced if item.get("panel_ok")
+            ],
+            "failed_client_ids": sorted(set(
+                failed_client_ids + [int(item["id"]) for item in synced if not item.get("panel_ok")]
+            )),
             "quota": quota_result,
             "ts": now_text(),
         }

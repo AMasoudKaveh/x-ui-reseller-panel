@@ -7,11 +7,19 @@ export type AdminRepresentative = {
   username: string;
   quota_bytes: number;
   used_bytes: number;
+  direct_used_bytes: number;
+  descendant_used_bytes: number;
   users: number;
   online: number;
   status: AdminRepresentativeStatus;
   raw_status: string;
   quota_locked: boolean;
+  ancestor_locked: boolean;
+  ancestor_locked_by: number | null;
+  parent_rep_id: number | null;
+  parent_username: string;
+  child_count: number;
+  descendant_count: number;
   inbound_ids: number[];
   created_at: string;
   updated_at: string;
@@ -180,4 +188,38 @@ export async function deleteAdminRepresentative(
   await api<{ ok: boolean }>(`/api/admin/representatives/${id}`, {
     method: "DELETE",
   });
+}
+
+export async function getResellerRepresentatives(): Promise<AdminRepresentativesData> {
+  const data = await api<{ok:boolean;representatives:AdminRepresentative[];archived_used_bytes?:number}>("/api/reseller/representatives");
+  return {representatives:data.representatives||[],archived_used_bytes:Number(data.archived_used_bytes||0)};
+}
+
+export async function getResellerRepresentativeInbounds(): Promise<AdminInbound[]> {
+  const data = await api<{ok:boolean;inbounds:AdminInbound[]}>("/api/reseller/representatives/inbounds");
+  return data.inbounds || [];
+}
+
+export async function createResellerRepresentative(input: RepresentativeInput & {password:string}): Promise<AdminRepresentative> {
+  const data = await api<{ok:boolean;representative:AdminRepresentative}>("/api/reseller/representatives",{method:"POST",body:JSON.stringify(input)});
+  return data.representative;
+}
+
+export async function updateResellerRepresentative(id:number,input:RepresentativeInput): Promise<AdminRepresentative> {
+  const data = await api<{ok:boolean;representative:AdminRepresentative}>(`/api/reseller/representatives/${id}`,{method:"PATCH",body:JSON.stringify(input)});
+  return data.representative;
+}
+
+export async function setResellerRepresentativeStatus(id:number,status:AdminRepresentativeStatus): Promise<AdminRepresentative> {
+  const data = await api<{ok:boolean;representative:AdminRepresentative}>(`/api/reseller/representatives/${id}/status`,{method:"POST",body:JSON.stringify({status})});
+  return data.representative;
+}
+
+export async function resetResellerRepresentativeUsage(id:number): Promise<AdminRepresentative> {
+  const data = await api<{ok:boolean;representative:AdminRepresentative}>(`/api/reseller/representatives/${id}/reset-usage`,{method:"POST",body:"{}"});
+  return data.representative;
+}
+
+export async function deleteResellerRepresentative(id:number): Promise<void> {
+  await api<{ok:boolean}>(`/api/reseller/representatives/${id}`,{method:"DELETE"});
 }

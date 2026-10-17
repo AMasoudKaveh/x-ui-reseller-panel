@@ -127,6 +127,15 @@ def ensure_profile_schema() -> None:
                 """
             )
 
+        if "quota_locked" not in columns:
+            con.execute("ALTER TABLE representatives ADD COLUMN quota_locked INTEGER NOT NULL DEFAULT 0")
+
+        if "ancestor_locked" not in columns:
+            con.execute("ALTER TABLE representatives ADD COLUMN ancestor_locked INTEGER NOT NULL DEFAULT 0")
+
+        if "allowed_inbound_ids" not in columns:
+            con.execute("ALTER TABLE representatives ADD COLUMN allowed_inbound_ids TEXT")
+
         con.commit()
 
 
@@ -205,7 +214,10 @@ def get_reseller_from_session(
                 quota_bytes,
                 used_bytes,
                 total_users,
-                subscription_brand
+                subscription_brand,
+                COALESCE(ancestor_locked,0) AS ancestor_locked,
+                COALESCE(quota_locked,0) AS quota_locked,
+                allowed_inbound_ids
 
             FROM representatives
 
@@ -232,6 +244,12 @@ def get_reseller_from_session(
             raise HTTPException(
                 status_code=403,
                 detail="Representative account is inactive",
+            )
+
+        if int(reseller["ancestor_locked"] or 0):
+            raise HTTPException(
+                status_code=403,
+                detail="Representative account is disabled by an upstream quota or suspension",
             )
 
 

@@ -466,6 +466,12 @@ def modify_user(client_id: int, body: ModifyUserBody, xui_session: str | None = 
     rep = get_reseller_from_session(xui_session)
     rep_id = int(rep["id"])
     local = owned_user(client_id, rep_id)
+    from backend.reseller_live_quota import sync_all
+    sync_result = sync_all(True)
+    if not sync_result.get("ok") or sync_result.get("skipped"):
+        raise HTTPException(502, "Verified traffic sync failed; user was not modified")
+    if int(client_id) not in set(sync_result.get("verified_client_ids") or []):
+        raise HTTPException(502, "This user's current x-ui traffic could not be verified; user was not modified")
     xui = XUIClient()
     ids = validate_inbounds(rep_id, body.inbound_ids, xui)
     tg = str(body.telegram_user_id or "").strip()
@@ -530,6 +536,12 @@ def reset_usage(client_id: int, xui_session: str | None = Cookie(default=None, a
     rep = get_reseller_from_session(xui_session)
     rep_id = int(rep["id"])
     local = owned_user(client_id, rep_id)
+    from backend.reseller_live_quota import sync_all
+    sync_result = sync_all(True)
+    if not sync_result.get("ok") or sync_result.get("skipped"):
+        raise HTTPException(502, "Verified traffic sync failed; usage was not reset")
+    if int(client_id) not in set(sync_result.get("verified_client_ids") or []):
+        raise HTTPException(502, "This user's current x-ui traffic could not be verified; usage was not reset")
     email = str(local.get("email") or "")
     xui = XUIClient()
     errors = []
@@ -593,6 +605,12 @@ def remove_user(client_id: int, xui_session: str | None = Cookie(default=None, a
     rep = get_reseller_from_session(xui_session)
     rep_id = int(rep["id"])
     local = owned_user(client_id, rep_id)
+    from backend.reseller_live_quota import sync_all
+    sync_result = sync_all(True)
+    if not sync_result.get("ok") or sync_result.get("skipped"):
+        raise HTTPException(502, "Verified traffic sync failed; user was not deleted")
+    if int(client_id) not in set(sync_result.get("verified_client_ids") or []):
+        raise HTTPException(502, "This user's current x-ui traffic could not be verified; user was not deleted")
     try:
         panel_result = delete_from_panel(XUIClient(), local)
     except Exception as e:
@@ -604,20 +622,12 @@ def remove_user(client_id: int, xui_session: str | None = Cookie(default=None, a
         if table_exists(con, "traffic_ledger"):
             row = con.execute("SELECT cumulative_used_bytes FROM traffic_ledger WHERE client_id=?", (int(client_id),)).fetchone()
             archived_used = int(row["cumulative_used_bytes"] or 0) if row else 0
-        con.execute("""
-            INSERT INTO deleted_client_usage(client_id,email,seller_rep_id,owner_rep_id,cumulative_used_bytes,deleted_at,reason)
-            VALUES(?,?,?,?,?,?,?)
-            ON CONFLICT(email) DO UPDATE SET
-              client_id=excluded.client_id,
-              seller_rep_id=excluded.seller_rep_id,
-              owner_rep_id=excluded.owner_rep_id,
-              cumulative_used_bytes=MAX(deleted_client_usage.cumulative_used_bytes, excluded.cumulative_used_bytes),
-              deleted_at=excluded.deleted_at,
-              reason=excluded.reason
-        """, (
-            int(client_id), str(local.get("email") or ""), rep_id,
-            to_int(local.get("owner_rep_id"), rep_id), archived_used, now_text(), "delete",
-        ))
+        from backend.reseller_live_quota import archive_deleted_usage
+        archive_deleted_usage(
+            con, client_id=int(client_id), email=str(local.get("email") or ""),
+            seller_rep_id=rep_id, owner_rep_id=to_int(local.get("owner_rep_id"), rep_id),
+            cumulative_used_bytes=archived_used, reason="delete",
+        )
         con.execute("DELETE FROM clients WHERE id=? AND seller_rep_id=?", (int(client_id), rep_id))
         if table_exists(con, "traffic_ledger"):
             con.execute("DELETE FROM traffic_ledger WHERE client_id=?", (int(client_id),))

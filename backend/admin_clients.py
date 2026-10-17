@@ -589,7 +589,12 @@ def modify_admin_client(
     xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
 ):
     _require_admin(xui_session)
-    _sync_if_due()
+    from backend.reseller_live_quota import sync_all
+    sync_result = sync_all(True)
+    if not sync_result.get("ok") or sync_result.get("skipped"):
+        raise HTTPException(status_code=502, detail="Verified traffic sync failed; client was not modified")
+    if int(client_id) not in set(sync_result.get("verified_client_ids") or []):
+        raise HTTPException(status_code=502, detail="This client's current x-ui traffic could not be verified; client was not modified")
     local = _admin_user(client_id)
     rep_id = to_int(local.get("seller_rep_id"), 0)
     ids = _validate_admin_inbounds(local, body.inbound_ids, allow_current=True)
@@ -708,6 +713,12 @@ def reset_admin_client_usage(
     xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
 ):
     _require_admin(xui_session)
+    from backend.reseller_live_quota import sync_all
+    sync_result = sync_all(True)
+    if not sync_result.get("ok") or sync_result.get("skipped"):
+        raise HTTPException(status_code=502, detail="Verified traffic sync failed; usage was not reset")
+    if int(client_id) not in set(sync_result.get("verified_client_ids") or []):
+        raise HTTPException(status_code=502, detail="This client's current x-ui traffic could not be verified; usage was not reset")
     local = _admin_user(client_id)
     email = str(local.get("email") or "")
     xui = XUIClient()
@@ -789,7 +800,12 @@ def remove_admin_client(
     xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
 ):
     _require_admin(xui_session)
-    _sync_if_due()
+    from backend.reseller_live_quota import sync_all
+    sync_result = sync_all(True)
+    if not sync_result.get("ok") or sync_result.get("skipped"):
+        raise HTTPException(status_code=502, detail="Verified traffic sync failed; client was not deleted")
+    if int(client_id) not in set(sync_result.get("verified_client_ids") or []):
+        raise HTTPException(status_code=502, detail="This client's current x-ui traffic could not be verified; client was not deleted")
     local = _admin_user(client_id)
     rep_id = to_int(local.get("seller_rep_id"), 0)
 
@@ -809,23 +825,11 @@ def remove_admin_client(
             if row:
                 archived_used = max(archived_used, to_int(row["cumulative_used_bytes"], 0))
 
-        con.execute(
-            """
-            INSERT INTO deleted_client_usage(
-                client_id,email,seller_rep_id,owner_rep_id,cumulative_used_bytes,deleted_at,reason
-            ) VALUES(?,?,?,?,?,?,?)
-            ON CONFLICT(email) DO UPDATE SET
-              client_id=excluded.client_id,
-              seller_rep_id=excluded.seller_rep_id,
-              owner_rep_id=excluded.owner_rep_id,
-              cumulative_used_bytes=MAX(deleted_client_usage.cumulative_used_bytes, excluded.cumulative_used_bytes),
-              deleted_at=excluded.deleted_at,
-              reason=excluded.reason
-            """,
-            (
-                int(client_id), str(local.get("email") or ""), rep_id,
-                to_int(local.get("owner_rep_id"), rep_id), archived_used, now_text(), "admin_delete",
-            ),
+        from backend.reseller_live_quota import archive_deleted_usage
+        archive_deleted_usage(
+            con, client_id=int(client_id), email=str(local.get("email") or ""),
+            seller_rep_id=rep_id, owner_rep_id=to_int(local.get("owner_rep_id"), rep_id),
+            cumulative_used_bytes=archived_used, reason="admin_delete",
         )
         con.execute("DELETE FROM clients WHERE id=?", (int(client_id),))
         if table_exists(con, "traffic_ledger"):

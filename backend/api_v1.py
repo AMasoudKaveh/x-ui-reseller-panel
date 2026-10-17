@@ -570,7 +570,8 @@ def require_api_key(
                 k.revoked_at,
 
                 r.username AS representative_username,
-                r.status AS representative_status
+                r.status AS representative_status,
+                COALESCE(r.ancestor_locked,0) AS representative_ancestor_locked
 
             FROM api_keys k
 
@@ -620,6 +621,12 @@ def require_api_key(
             raise HTTPException(
                 status_code=403,
                 detail="Representative account is inactive",
+            )
+
+        if int(row["representative_ancestor_locked"] or 0):
+            raise HTTPException(
+                status_code=403,
+                detail="Representative account is disabled by an upstream quota or suspension",
             )
 
         try:
