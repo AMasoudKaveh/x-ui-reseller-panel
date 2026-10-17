@@ -317,6 +317,171 @@ def get_rep(con: sqlite3.Connection, rep_id: int) -> dict[str, Any]:
     return dict(row)
 
 
+def representative_subtree(con: sqlite3.Connection, rep_id: int) -> list[dict[str, Any]]:
+    """Return an active representative and every active descendant, root first."""
+    return [
+        dict(row)
+        for row in con.execute(
+            """
+            WITH RECURSIVE tree(id, depth) AS (
+                SELECT id, 0 FROM representatives
+                WHERE id=? AND COALESCE(deleted_at,'')=''
+                UNION ALL
+                SELECT r.id, tree.depth + 1
+                FROM representatives r
+                JOIN tree ON r.parent_rep_id=tree.id
+                WHERE COALESCE(r.deleted_at,'')=''
+            )
+            SELECT r.*, tree.depth
+            FROM tree JOIN representatives r ON r.id=tree.id
+            ORDER BY tree.depth, r.id
+            """,
+            (int(rep_id),),
+        ).fetchall()
+    ]
+
+
+def representative_deletion_preview(con: sqlite3.Connection, rep_id: int) -> dict[str, Any]:
+    reps = representative_subtree(con, rep_id)
+    if not reps:
+        raise HTTPException(status_code=404, detail="Representative not found")
+    rep_ids = [int(row["id"]) for row in reps]
+    marks = ",".join("?" for _ in rep_ids)
+    client_rows = []
+    if table_exists(con, "clients"):
+        client_rows = con.execute(
+            f"SELECT id,email,seller_rep_id FROM clients WHERE seller_rep_id IN ({marks}) AND COALESCE(status,'')!='deleted' ORDER BY seller_rep_id,id",
+            rep_ids,
+        ).fetchall()
+    counts: dict[int, int] = {}
+    for row in client_rows:
+        seller_id = int(row["seller_rep_id"] or 0)
+        counts[seller_id] = counts.get(seller_id, 0) + 1
+    return {
+        "root_id": int(rep_id),
+        "representative_count": len(reps),
+        "descendant_count": max(0, len(reps) - 1),
+        "client_count": len(client_rows),
+        "representatives": [
+            {
+                "id": int(row["id"]),
+                "username": str(row.get("username") or ""),
+                "parent_rep_id": int(row.get("parent_rep_id") or 0) or None,
+                "depth": int(row.get("depth") or 0),
+                "client_count": counts.get(int(row["id"]), 0),
+            }
+            for row in reps
+        ],
+    }
+
+
+def delete_representative_subtree(rep_id: int, verified_client_ids: set[int]) -> dict[str, Any]:
+    """Delete an entire branch while retaining every byte in immutable accounting."""
+    from backend.reseller_live_quota import archive_deleted_usage, representative_usage
+    from backend.reseller_user_actions import delete_from_panel
+
+    with connect_db() as con:
+        preview = representative_deletion_preview(con, rep_id)
+        rep_ids = [int(row["id"]) for row in preview["representatives"]]
+        marks = ",".join("?" for _ in rep_ids)
+        reps = representative_subtree(con, rep_id)
+        clients = [
+            dict(row)
+            for row in con.execute(
+                f"SELECT * FROM clients WHERE seller_rep_id IN ({marks}) AND COALESCE(status,'')!='deleted' ORDER BY id",
+                rep_ids,
+            ).fetchall()
+        ] if table_exists(con, "clients") else []
+        client_ids = {int(row["id"]) for row in clients}
+        missing = sorted(client_ids - verified_client_ids)
+        if missing:
+            raise HTTPException(
+                status_code=502,
+                detail="Some subtree client traffic could not be verified; nothing was deleted",
+            )
+        direct_usage = {int(row["id"]): max(0, int(representative_usage(con, int(row["id"])))) for row in reps}
+
+    # X-UI is the authoritative user store. Do not alter local rows until every
+    # remote deletion succeeds; their ledgers remain intact on any partial error.
+    xui = XUIClient()
+    deleted_remote: list[str] = []
+    failures: list[str] = []
+    for local in clients:
+        email = str(local.get("email") or "")
+        try:
+            delete_from_panel(xui, local)
+            deleted_remote.append(email)
+        except Exception as exc:
+            failures.append(f"{email}: {exc}")
+    if failures:
+        raise HTTPException(
+            status_code=502,
+            detail="Some x-ui users could not be deleted; local accounting was preserved. " + " | ".join(failures[:12]),
+        )
+
+    stamp = now_text()
+    with connect_db() as con:
+        # Re-read ledgers in the final transaction and archive each lifecycle
+        # exactly once before removing active rows.
+        for local in clients:
+            client_id = int(local.get("id") or 0)
+            ledger = con.execute(
+                "SELECT cumulative_used_bytes FROM traffic_ledger WHERE client_id=?",
+                (client_id,),
+            ).fetchone() if table_exists(con, "traffic_ledger") else None
+            cumulative = max(0, int(ledger["cumulative_used_bytes"] or 0)) if ledger else 0
+            archive_deleted_usage(
+                con,
+                client_id=client_id,
+                email=str(local.get("email") or ""),
+                seller_rep_id=int(local.get("seller_rep_id") or 0),
+                owner_rep_id=int(local.get("owner_rep_id") or local.get("seller_rep_id") or 0),
+                cumulative_used_bytes=cumulative,
+                reason="representative_cascade_deleted",
+            )
+
+        for row in reps:
+            rid = int(row["id"])
+            direct_clients = sum(1 for client in clients if int(client.get("seller_rep_id") or 0) == rid)
+            con.execute(
+                """INSERT INTO deleted_representatives(original_rep_id,username,quota_bytes,used_bytes,client_count,deleted_at)
+                   VALUES(?,?,?,?,?,?) ON CONFLICT(original_rep_id) DO UPDATE SET
+                   username=excluded.username,quota_bytes=excluded.quota_bytes,
+                   used_bytes=MAX(deleted_representatives.used_bytes,excluded.used_bytes),
+                   client_count=MAX(deleted_representatives.client_count,excluded.client_count),deleted_at=excluded.deleted_at""",
+                (rid, str(row.get("username") or ""), max(0, int(row.get("quota_bytes") or 0)),
+                 direct_usage.get(rid, 0), direct_clients, stamp),
+            )
+
+        if clients and table_exists(con, "traffic_ledger"):
+            client_ids = [int(row["id"]) for row in clients]
+            client_marks = ",".join("?" for _ in client_ids)
+            con.execute(f"DELETE FROM traffic_ledger WHERE client_id IN ({client_marks})", client_ids)
+        if table_exists(con, "clients"):
+            con.execute(f"DELETE FROM clients WHERE seller_rep_id IN ({marks})", rep_ids)
+        con.execute(f"DELETE FROM auth_sessions WHERE role='reseller' AND account_id IN ({marks})", rep_ids)
+        if table_exists(con, "api_keys"):
+            con.execute(
+                f"UPDATE api_keys SET is_active=0,revoked_at=? WHERE representative_id IN ({marks})",
+                [int(time.time()), *rep_ids],
+            )
+        # Keep hidden nodes and their parent links: archived traffic then keeps
+        # rolling up to every living ancestor without duplication or loss.
+        con.execute(
+            f"UPDATE representatives SET username=username || '#deleted#' || id,status='deleted',deleted_at=?,updated_at=? WHERE id IN ({marks})",
+            [stamp, stamp, *rep_ids],
+        )
+        con.commit()
+
+    return {
+        "ok": True,
+        "representatives_deleted": len(rep_ids),
+        "clients_deleted": len(clients),
+        "xui_users_deleted": deleted_remote,
+        "preview": preview,
+    }
+
+
 def client_counts(con: sqlite3.Connection, rep_id: int) -> tuple[int, int]:
     if not table_exists(con, "clients"):
         return 0, 0
@@ -1288,6 +1453,17 @@ def reset_representative_usage(
     }
 
 
+@router.get("/representatives/{rep_id}/deletion-preview")
+def preview_representative_deletion(
+    rep_id: int,
+    xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+):
+    require_admin(xui_session)
+    ensure_admin_schema()
+    with connect_db() as con:
+        return {"ok": True, **representative_deletion_preview(con, rep_id)}
+
+
 @router.delete("/representatives/{rep_id}")
 def delete_representative(
     rep_id: int,
@@ -1299,112 +1475,10 @@ def delete_representative(
     sync_result = sync_all(True)
     if not sync_result.get("ok") or sync_result.get("skipped"):
         raise HTTPException(status_code=502, detail="Verified traffic sync failed; representative was not deleted")
-    with connect_db() as con:
-        if con.execute(
-            "SELECT 1 FROM representatives WHERE parent_rep_id=? AND COALESCE(deleted_at,'')='' LIMIT 1",
-            (rep_id,),
-        ).fetchone():
-            raise HTTPException(status_code=409, detail="Remove this representative's sub-representatives first")
-        client_ids = {int(row["id"]) for row in con.execute(
-            "SELECT id FROM clients WHERE seller_rep_id=? AND COALESCE(status,'')!='deleted'", (rep_id,)
-        ).fetchall()}
-        if client_ids - set(sync_result.get("verified_client_ids") or []):
-            raise HTTPException(status_code=502, detail="Some client traffic could not be verified; representative was not deleted")
-
-    # First make sure every currently eligible x-ui client is disabled.  We do
-    # not remove clients from x-ui here; the primary x-ui panel remains the
-    # infrastructure source of truth and the disabled configs can still be
-    # inspected there if needed.
-    lifecycle = suspend_rep_clients(rep_id, reason="rep_deleted")
-    if lifecycle.get("failures"):
-        raise HTTPException(
-            status_code=502,
-            detail="Could not disable every active x-ui client. Representative was not removed; retry after x-ui is reachable. "
-            + " | ".join(lifecycle.get("failures") or []),
-        )
-
-    with connect_db() as con:
-        rep = get_rep(con, rep_id)
-        username = str(rep.get("username") or "")
-        quota_bytes = max(0, int(rep.get("quota_bytes") or 0))
-        from backend.reseller_live_quota import representative_usage
-        used_bytes = max(0, int(representative_usage(con, rep_id)))
-
-        client_rows: list[dict[str, Any]] = []
-        if table_exists(con, "clients"):
-            client_rows = [
-                dict(row)
-                for row in con.execute(
-                    "SELECT * FROM clients WHERE seller_rep_id=?",
-                    (rep_id,),
-                ).fetchall()
-            ]
-
-        # Preserve every client's cumulative traffic before removing local rows.
-        # This keeps historical accounting intact even after a representative is
-        # permanently removed from the active database tables.
-        if client_rows:
-            for local in client_rows:
-                client_id = int(local.get("id") or 0)
-                email = str(local.get("email") or "")
-                cumulative = 0
-                if table_exists(con, "traffic_ledger"):
-                    row = con.execute(
-                        "SELECT cumulative_used_bytes FROM traffic_ledger WHERE client_id=?",
-                        (client_id,),
-                    ).fetchone()
-                    if row:
-                        cumulative = max(0, int(row["cumulative_used_bytes"] or 0))
-
-                from backend.reseller_live_quota import archive_deleted_usage
-                archive_deleted_usage(
-                    con, client_id=client_id, email=email, seller_rep_id=rep_id,
-                    owner_rep_id=int(local.get("owner_rep_id") or rep_id),
-                    cumulative_used_bytes=cumulative, reason="representative_deleted",
-                )
-
-        con.execute(
-            """
-            INSERT INTO deleted_representatives(
-                original_rep_id,username,quota_bytes,used_bytes,client_count,deleted_at
-            )
-            VALUES(?,?,?,?,?,?)
-            ON CONFLICT(original_rep_id) DO UPDATE SET
-              username=excluded.username,
-              quota_bytes=excluded.quota_bytes,
-              used_bytes=MAX(deleted_representatives.used_bytes, excluded.used_bytes),
-              client_count=MAX(deleted_representatives.client_count, excluded.client_count),
-              deleted_at=excluded.deleted_at
-            """,
-            (rep_id, username, quota_bytes, used_bytes, len(client_rows), now_text()),
-        )
-
-        invalidate_rep_sessions(con, rep_id)
-
-        if table_exists(con, "traffic_ledger") and client_rows:
-            ids = [int(row.get("id") or 0) for row in client_rows if int(row.get("id") or 0) > 0]
-            if ids:
-                marks = ",".join("?" for _ in ids)
-                con.execute(f"DELETE FROM traffic_ledger WHERE client_id IN ({marks})", ids)
-
-        if table_exists(con, "clients"):
-            con.execute("DELETE FROM clients WHERE seller_rep_id=?", (rep_id,))
-
-        # Historical traffic_events are intentionally retained.  The admin
-        # dashboard uses them for the 7-day traffic chart even after deletion.
-        # Keep a hidden hierarchy node so a deleted nested representative's
-        # archived traffic still contributes to every living ancestor.
-        con.execute(
-            "UPDATE representatives SET username=username || '#deleted#' || id,status='deleted',deleted_at=?,updated_at=? WHERE id=?",
-            (now_text(), now_text(), rep_id),
-        )
-        con.commit()
-
-    return {
-        "ok": True,
-        "hard_deleted": True,
-        "archived_used_bytes": used_bytes,
-        "archived_clients": len(client_rows),
-        "lifecycle": lifecycle,
-        "note": "Representative permanently deleted; historical traffic was archived.",
-    }
+    result = delete_representative_subtree(
+        rep_id,
+        {int(value) for value in sync_result.get("verified_client_ids") or []},
+    )
+    result["quota_reconcile"] = reconcile_quota()
+    result["note"] = "Representative branch deleted from x-ui; all historical traffic remains charged to living ancestors."
+    return result

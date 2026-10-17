@@ -102,6 +102,20 @@ export type AdminRepresentativesData = {
   archived_used_bytes: number;
 };
 
+export type RepresentativeDeletionPreview = {
+  root_id: number;
+  representative_count: number;
+  descendant_count: number;
+  client_count: number;
+  representatives: Array<{
+    id: number;
+    username: string;
+    parent_rep_id: number | null;
+    depth: number;
+    client_count: number;
+  }>;
+};
+
 export async function getAdminRepresentatives(): Promise<AdminRepresentativesData> {
   const data = await api<{
     ok: boolean;
@@ -190,6 +204,10 @@ export async function deleteAdminRepresentative(
   });
 }
 
+export async function getAdminRepresentativeDeletionPreview(id:number): Promise<RepresentativeDeletionPreview> {
+  return api<RepresentativeDeletionPreview>(`/api/admin/representatives/${id}/deletion-preview`);
+}
+
 export async function getResellerRepresentatives(): Promise<AdminRepresentativesData> {
   const data = await api<{ok:boolean;representatives:AdminRepresentative[];archived_used_bytes?:number}>("/api/reseller/representatives");
   return {representatives:data.representatives||[],archived_used_bytes:Number(data.archived_used_bytes||0)};
@@ -222,4 +240,8 @@ export async function resetResellerRepresentativeUsage(id:number): Promise<Admin
 
 export async function deleteResellerRepresentative(id:number): Promise<void> {
   await api<{ok:boolean}>(`/api/reseller/representatives/${id}`,{method:"DELETE"});
+}
+
+export async function getResellerRepresentativeDeletionPreview(id:number): Promise<RepresentativeDeletionPreview> {
+  return api<RepresentativeDeletionPreview>(`/api/reseller/representatives/${id}/deletion-preview`);
 }

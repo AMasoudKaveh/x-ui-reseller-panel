@@ -25,6 +25,7 @@ import {
   createAdminRepresentative,
   deleteAdminRepresentative,
   getAdminInbounds,
+  getAdminRepresentativeDeletionPreview,
   getAdminRepresentatives,
   resetAdminRepresentativeUsage,
   setAdminRepresentativeStatus,
@@ -32,6 +33,7 @@ import {
   createResellerRepresentative,
   deleteResellerRepresentative,
   getResellerRepresentativeInbounds,
+  getResellerRepresentativeDeletionPreview,
   getResellerRepresentatives,
   resetResellerRepresentativeUsage,
   setResellerRepresentativeStatus,
@@ -39,6 +41,7 @@ import {
   type AdminInbound,
   type AdminRepresentative,
   type AdminRepresentativeStatus,
+  type RepresentativeDeletionPreview,
 } from "../../api/adminRepresentatives";
 
 type SortKey = "username" | "created" | "updated" | "usage" | "users";
@@ -74,6 +77,9 @@ export default function RepresentativesPage({scope="admin"}:{scope?:"admin"|"res
   const [toast, setToast] = useState("");
   const [loading, setLoading] = useState(true);
   const [archivedUsedBytes, setArchivedUsedBytes] = useState(0);
+  const [deleteTarget, setDeleteTarget] = useState<AdminRepresentative | null>(null);
+  const [deletePreview, setDeletePreview] = useState<RepresentativeDeletionPreview | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const showToast = (message:string) => {
     setToast(message);
@@ -154,13 +160,34 @@ export default function RepresentativesPage({scope="admin"}:{scope?:"admin"|"res
     }
   };
 
-  const remove = async (rep: AdminRepresentative) => {
+  const openRemove = async (rep: AdminRepresentative) => {
+    setDeleteTarget(rep);
+    setDeletePreview(null);
+    setDeleteLoading(true);
     try {
-      await (isReseller ? deleteResellerRepresentative(rep.id) : deleteAdminRepresentative(rep.id));
+      const preview = await (isReseller
+        ? getResellerRepresentativeDeletionPreview(rep.id)
+        : getAdminRepresentativeDeletionPreview(rep.id));
+      setDeletePreview(preview);
+    } catch (error) {
+      setDeleteTarget(null);
+      showToast(error instanceof Error ? error.message : "Unable to prepare deletion");
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const remove = async () => {
+    if (!deleteTarget) return;
+    try {
+      await (isReseller ? deleteResellerRepresentative(deleteTarget.id) : deleteAdminRepresentative(deleteTarget.id));
+      setDeleteTarget(null);
+      setDeletePreview(null);
       await loadRows(true);
-      showToast("Representative Removed");
+      showToast("Representative branch removed; traffic history preserved");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Remove failed");
+      throw error;
     }
   };
 
@@ -219,7 +246,7 @@ export default function RepresentativesPage({scope="admin"}:{scope?:"admin"|"res
                     <button type="button" onClick={()=>{setMenuFor(null);void resetUsage(rep)}}><RefreshCcw size={18}/><span>Reset Usage</span></button>
                     <div className="ua-menu-divider"/>
                     <button type="button" className="ua-warning" onClick={()=>{setMenuFor(null);void updateStatus(rep)}}><Ban size={18}/><span>{rep.raw_status==="active"?"Suspend":"Activate"}</span></button>
-                    <button type="button" className="ua-danger" onClick={()=>{setMenuFor(null);void remove(rep)}}><Trash2 size={18}/><span>Remove</span></button>
+                    <button type="button" className="ua-danger" onClick={()=>{setMenuFor(null);void openRemove(rep)}}><Trash2 size={18}/><span>Remove</span></button>
                   </div>}
                 </div>
               </div>
@@ -275,8 +302,49 @@ export default function RepresentativesPage({scope="admin"}:{scope?:"admin"|"res
         }}
       />
       <RepresentativeDetails open={Boolean(details)} rep={details} inbounds={inbounds} onClose={()=>setDetails(null)}/>
+      <RepresentativeDeleteModal
+        target={deleteTarget}
+        preview={deletePreview}
+        loading={deleteLoading}
+        onClose={()=>{setDeleteTarget(null);setDeletePreview(null)}}
+        onConfirm={remove}
+      />
     </>
   );
+}
+
+function RepresentativeDeleteModal({target,preview,loading,onClose,onConfirm}:{
+  target:AdminRepresentative|null;
+  preview:RepresentativeDeletionPreview|null;
+  loading:boolean;
+  onClose:()=>void;
+  onConfirm:()=>Promise<void>;
+}) {
+  const [confirmation,setConfirmation]=useState("");
+  const [submitting,setSubmitting]=useState(false);
+  useEffect(()=>setConfirmation(""),[target?.id]);
+  if(!target) return null;
+  const ready=Boolean(preview)&&confirmation.trim()===target.username&&!submitting;
+  const submit=async()=>{
+    if(!ready) return;
+    setSubmitting(true);
+    try { await onConfirm(); } finally { setSubmitting(false); }
+  };
+  return <div className="cu-backdrop admin-rep-backdrop" onMouseDown={onClose}>
+    <section className="cu-modal rp-modal rp-delete-modal" onMouseDown={e=>e.stopPropagation()}>
+      <header className="cu-header"><div className="cu-title-wrap"><Trash2 size={24}/><div><h2>Delete representative branch</h2><p>This action permanently removes users from x-ui.</p></div></div><button className="cu-close" onClick={onClose}><X size={21}/></button></header>
+      <div className="cu-body rp-delete-body">
+        {loading?<div className="muted">Loading the complete subtree…</div>:preview?<>
+          <div className="rp-delete-warning"><strong>{preview.representative_count} representative{preview.representative_count===1?"":"s"} and {preview.client_count} user{preview.client_count===1?"":"s"} will be removed.</strong><span>All listed users are deleted from x-ui. Their recorded traffic is archived and remains charged to every living ancestor.</span></div>
+          <div className="rp-delete-tree">
+            {preview.representatives.map(item=><div className="rp-delete-tree-row" key={item.id} style={{paddingInlineStart:`${12+item.depth*22}px`}}><UsersRound size={16}/><strong>{item.username}</strong><span>{item.client_count} users</span></div>)}
+          </div>
+          <label className="cu-field"><span>Type <strong>{target.username}</strong> to confirm</span><input value={confirmation} onChange={e=>setConfirmation(e.target.value)} autoComplete="off"/></label>
+        </>:null}
+      </div>
+      <footer className="cu-footer"><button className="cu-secondary" type="button" onClick={onClose} disabled={submitting}>Cancel</button><button className="cu-danger" type="button" disabled={!ready} onClick={()=>void submit()}>{submitting?"Deleting from x-ui…":"Delete entire branch"}</button></footer>
+    </section>
+  </div>;
 }
 
 function RepStat({icon:Icon,label,value}:{icon:any;label:string;value:string|number}) { return <section className="up-stat-card"><div className="up-stat-left"><Icon size={23}/><span>{label}</span></div><strong>{value}</strong></section> }

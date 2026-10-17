@@ -3,6 +3,8 @@ import unittest
 from unittest.mock import patch
 
 import backend.reseller_live_quota as quota_module
+import backend.admin_representatives as admin_reps
+import backend.reseller_user_actions as user_actions
 from backend.reseller_live_quota import representative_usage_tree
 
 
@@ -119,6 +121,65 @@ class RepresentativeHierarchyUsageTests(unittest.TestCase):
             self.assertEqual(y["used_bytes"], 10)  # Y starts a new quota period.
             self.assertEqual(y["quota_locked"], 0)
             self.assertEqual(z["ancestor_locked"], 0)
+        finally:
+            anchor.close()
+
+    def test_cascade_delete_preserves_descendant_usage_for_living_parent(self):
+        uri = "file:hierarchy_delete_test?mode=memory&cache=shared"
+        anchor = sqlite3.connect(uri, uri=True)
+        try:
+            def connect():
+                con = sqlite3.connect(uri, uri=True)
+                con.row_factory = sqlite3.Row
+                return con
+
+            with connect() as con:
+                con.executescript(
+                    """
+                    CREATE TABLE representatives(
+                      id INTEGER PRIMARY KEY,parent_rep_id INTEGER,deleted_at TEXT,
+                      username TEXT,status TEXT,quota_bytes INTEGER,updated_at TEXT);
+                    CREATE TABLE clients(
+                      id INTEGER PRIMARY KEY,email TEXT,seller_rep_id INTEGER,
+                      owner_rep_id INTEGER,status TEXT);
+                    CREATE TABLE traffic_ledger(client_id INTEGER PRIMARY KEY,cumulative_used_bytes INTEGER);
+                    CREATE TABLE deleted_client_usage_v2(
+                      id INTEGER PRIMARY KEY AUTOINCREMENT,client_id INTEGER,email TEXT,
+                      seller_rep_id INTEGER,owner_rep_id INTEGER,cumulative_used_bytes INTEGER,
+                      deleted_at TEXT,reason TEXT);
+                    CREATE TABLE deleted_representatives(
+                      original_rep_id INTEGER PRIMARY KEY,username TEXT,quota_bytes INTEGER,
+                      used_bytes INTEGER,client_count INTEGER,deleted_at TEXT);
+                    CREATE TABLE auth_sessions(token TEXT,role TEXT,account_id INTEGER);
+                    INSERT INTO representatives VALUES
+                      (1,NULL,NULL,'X','active',100,NULL),
+                      (2,1,NULL,'Y','active',50,NULL),
+                      (3,2,NULL,'Z','active',25,NULL);
+                    INSERT INTO clients VALUES
+                      (11,'x-user',1,1,'active'),
+                      (12,'y-user',2,2,'active'),
+                      (13,'z-user',3,3,'active');
+                    INSERT INTO traffic_ledger VALUES(11,10),(12,20),(13,30);
+                    """
+                )
+
+            deleted = []
+            with patch.object(admin_reps, "connect_db", connect), \
+                 patch.object(admin_reps, "XUIClient", lambda: object()), \
+                 patch.object(user_actions, "delete_from_panel", lambda _xui, local: deleted.append(local["email"])):
+                preview = admin_reps.representative_deletion_preview(connect(), 2)
+                result = admin_reps.delete_representative_subtree(2, {12, 13})
+
+            self.assertEqual(preview["representative_count"], 2)
+            self.assertEqual(preview["client_count"], 2)
+            self.assertEqual(result["representatives_deleted"], 2)
+            self.assertEqual(deleted, ["y-user", "z-user"])
+            with connect() as con:
+                self.assertEqual(con.execute("SELECT COUNT(*) FROM clients WHERE seller_rep_id IN (2,3)").fetchone()[0], 0)
+                self.assertEqual(con.execute("SELECT SUM(cumulative_used_bytes) FROM deleted_client_usage_v2").fetchone()[0], 50)
+                self.assertEqual(con.execute("SELECT COUNT(*) FROM representatives WHERE id IN (2,3) AND status='deleted'").fetchone()[0], 2)
+                _, subtree, _ = representative_usage_tree(con)
+                self.assertEqual(subtree[1], 60)  # X keeps all 50 bytes consumed by Y/Z.
         finally:
             anchor.close()
 

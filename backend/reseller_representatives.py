@@ -10,6 +10,7 @@ from backend.admin_representatives import (
     RepresentativeCreateBody,
     RepresentativeStatusBody,
     RepresentativeUpdateBody,
+    delete_representative_subtree,
     ensure_admin_schema,
     get_rep,
     hash_password,
@@ -19,6 +20,7 @@ from backend.admin_representatives import (
     parse_inbound_ids,
     reconcile_quota,
     rep_payload,
+    representative_deletion_preview,
     restore_rep_clients,
     restrict_descendant_inbounds,
     suspend_rep_clients,
@@ -211,46 +213,17 @@ def delete_child(child_id: int, xui_session: str | None = Cookie(default=None, a
         raise HTTPException(status_code=502, detail="A verified x-ui sync is required before deletion")
     with connect_db() as con:
         _owned_child(con, int(actor["id"]), child_id)
-        if con.execute("SELECT 1 FROM representatives WHERE parent_rep_id=? AND COALESCE(deleted_at,'')='' LIMIT 1", (child_id,)).fetchone():
-            raise HTTPException(status_code=409, detail="Remove this representative's sub-representatives first")
-        client_ids = {int(row["id"]) for row in con.execute(
-            "SELECT id FROM clients WHERE seller_rep_id=? AND COALESCE(status,'')!='deleted'", (child_id,)
-        ).fetchall()}
-        if client_ids - set(result.get("verified_client_ids") or []):
-            raise HTTPException(status_code=502, detail="Some client traffic could not be verified; representative was not deleted")
-    lifecycle = suspend_rep_clients(child_id, reason="representative_deleted")
-    if lifecycle.get("failures"):
-        raise HTTPException(status_code=502, detail="Could not disable all x-ui clients; nothing was deleted")
+    response = delete_representative_subtree(
+        child_id,
+        {int(value) for value in result.get("verified_client_ids") or []},
+    )
+    response["quota_reconcile"] = reconcile_quota()
+    return response
+
+
+@router.get("/{child_id}/deletion-preview")
+def preview_child_deletion(child_id: int, xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
+    actor = _actor(xui_session)
     with connect_db() as con:
-        from backend.reseller_live_quota import representative_usage
-        rep = get_rep(con, child_id)
-        archived_rep_used = max(0, int(representative_usage(con, child_id)))
-        rows = con.execute("SELECT id,email,owner_rep_id FROM clients WHERE seller_rep_id=?", (child_id,)).fetchall()
-        for row in rows:
-            ledger = con.execute("SELECT cumulative_used_bytes FROM traffic_ledger WHERE client_id=?", (int(row["id"]),)).fetchone()
-            used = int(ledger["cumulative_used_bytes"] or 0) if ledger else 0
-            from backend.reseller_live_quota import archive_deleted_usage
-            archive_deleted_usage(
-                con, client_id=int(row["id"]), email=str(row["email"]),
-                seller_rep_id=child_id, owner_rep_id=int(row["owner_rep_id"] or child_id),
-                cumulative_used_bytes=used, reason="representative_deleted",
-            )
-            con.execute("DELETE FROM traffic_ledger WHERE client_id=?", (int(row["id"]),))
-        con.execute("DELETE FROM clients WHERE seller_rep_id=?", (child_id,))
-        con.execute("DELETE FROM auth_sessions WHERE role='reseller' AND account_id=?", (child_id,))
-        con.execute(
-            """INSERT INTO deleted_representatives(original_rep_id,username,quota_bytes,used_bytes,client_count,deleted_at)
-               VALUES(?,?,?,?,?,?) ON CONFLICT(original_rep_id) DO UPDATE SET
-               username=excluded.username,quota_bytes=excluded.quota_bytes,
-               used_bytes=MAX(deleted_representatives.used_bytes,excluded.used_bytes),
-               client_count=MAX(deleted_representatives.client_count,excluded.client_count),deleted_at=excluded.deleted_at""",
-            (child_id, str(rep.get("username") or ""), int(rep.get("quota_bytes") or 0),
-             archived_rep_used, len(rows), now_text()),
-        )
-        con.execute(
-            "UPDATE representatives SET username=username || '#deleted#' || id,status='deleted',deleted_at=?,updated_at=? WHERE id=? AND parent_rep_id=?",
-            (now_text(), now_text(), child_id, int(actor["id"])),
-        )
-        con.commit()
-    reconcile_quota()
-    return {"ok": True}
+        _owned_child(con, int(actor["id"]), child_id)
+        return {"ok": True, **representative_deletion_preview(con, child_id)}
