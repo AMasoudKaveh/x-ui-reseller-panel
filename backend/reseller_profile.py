@@ -7,6 +7,8 @@ from pathlib import Path
 from fastapi import APIRouter, Cookie, HTTPException
 from pydantic import BaseModel
 
+from backend.sqlite_utils import ClosingConnection
+
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "data" / "auth.db"
@@ -46,7 +48,7 @@ def normalize_subscription_brand(value: str | None) -> str:
 
 def connect_db() -> sqlite3.Connection:
 
-    con = sqlite3.connect(DB_PATH, timeout=30.0)
+    con = sqlite3.connect(DB_PATH, timeout=30.0, factory=ClosingConnection)
 
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")

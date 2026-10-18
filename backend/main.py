@@ -12,6 +12,7 @@ from fastapi import Cookie, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from backend.sqlite_utils import ClosingConnection
 from backend.xui_client import env_bool, env_string
 from backend.version import app_version
 
@@ -39,7 +40,7 @@ class LoginBody(BaseModel):
 
 
 def db() -> sqlite3.Connection:
-    con = sqlite3.connect(DB_PATH, timeout=30.0)
+    con = sqlite3.connect(DB_PATH, timeout=30.0, factory=ClosingConnection)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
     con.execute("PRAGMA busy_timeout = 30000")
