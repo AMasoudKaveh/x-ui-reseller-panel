@@ -275,6 +275,11 @@ const [
         const rows = await getXuiInbounds();
         if (!alive) return;
         setInbounds(rows);
+        setError(current =>
+          current.startsWith("Unable to load x-ui inbounds")
+            ? ""
+            : current
+        );
         setSelected(current =>
           current.filter(id => rows.some(item => item.id === id))
         );

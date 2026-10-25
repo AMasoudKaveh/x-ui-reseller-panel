@@ -314,14 +314,33 @@ def allowed_inbound_ids(
         parsed
     )
 
-
-    return [
+    live_allowed = [
         item
 
         for item in panel_ids
 
         if item in allowed
     ]
+
+    # An inbound may be deleted directly in x-ui while it is still assigned
+    # to one or more representatives locally. Heal that stale assignment on
+    # read so future forms and API operations only carry live inbound IDs.
+    if live_allowed != allowed:
+        with connect_db() as con:
+            con.execute(
+                """
+                UPDATE representatives
+                SET allowed_inbound_ids = ?
+                WHERE id = ?
+                """,
+                (
+                    json.dumps(live_allowed),
+                    reseller_id,
+                ),
+            )
+            con.commit()
+
+    return live_allowed
 
 
 @router.get("/xui/status")
