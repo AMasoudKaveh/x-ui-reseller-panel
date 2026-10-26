@@ -22,7 +22,7 @@ from backend.xui_client import ENV_PATH, XUIClient, XUIError, read_env_file, rel
 
 
 BACKUP_FORMAT = "xui-reseller-panel-backup"
-BACKUP_FORMAT_VERSION = 2
+BACKUP_FORMAT_VERSION = 3
 MAX_RESTORE_BYTES = 512 * 1024 * 1024
 STAGE_TTL_SECONDS = 30 * 60
 SAFETY_BACKUP_KEEP = 10
@@ -34,6 +34,7 @@ EXPECTED_DATA_TABLES = {
     "api_renew_idempotency",
     "admin_api_keys", "admin_api_audit_logs",
 }
+EXPECTED_V3_TABLES = EXPECTED_DATA_TABLES | {"traffic_daily"}
 PORTABLE_RUNTIME_KEYS = (
     "PUBLIC_LINK_REWRITE", "PUBLIC_CONFIG_HOST", "PUBLIC_CONFIG_PORT",
     "PUBLIC_REALITY_SID", "PUBLIC_SUB_BASE_URL",
@@ -79,6 +80,59 @@ def _sqlite_snapshot_to(path: Path) -> Path:
             source.backup(target)
             target.commit()
     return path
+
+
+def _compact_portable_history(path: Path) -> None:
+    """Keep quota state and chart history without shipping raw sync events.
+
+    traffic_ledger is the authoritative cumulative quota store. Raw
+    traffic_events are only chart/audit samples and can grow to many millions
+    of rows. Portable backups aggregate those samples by day and ownership,
+    retain the empty legacy table for restore compatibility, then vacuum only
+    the temporary snapshot (never the live database).
+    """
+    with contextlib.closing(sqlite3.connect(path)) as con:
+        con.execute(
+            """CREATE TABLE IF NOT EXISTS traffic_daily(
+                event_day TEXT NOT NULL,
+                owner_rep_id INTEGER NOT NULL DEFAULT 0,
+                seller_rep_id INTEGER NOT NULL DEFAULT 0,
+                delta_bytes INTEGER NOT NULL DEFAULT 0,
+                event_count INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(event_day, owner_rep_id, seller_rep_id)
+            )"""
+        )
+        has_events = con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='traffic_events'"
+        ).fetchone()
+        if has_events:
+            con.execute(
+                """INSERT INTO traffic_daily(
+                       event_day, owner_rep_id, seller_rep_id,
+                       delta_bytes, event_count
+                   )
+                   SELECT substr(created_at,1,10),
+                          COALESCE(owner_rep_id,0),
+                          COALESCE(seller_rep_id,0),
+                          COALESCE(SUM(CASE WHEN delta_bytes>0 THEN delta_bytes ELSE 0 END),0),
+                          COUNT(*)
+                   FROM traffic_events
+                   WHERE length(created_at)>=10
+                   GROUP BY substr(created_at,1,10),
+                            COALESCE(owner_rep_id,0),
+                            COALESCE(seller_rep_id,0)
+                   ON CONFLICT(event_day, owner_rep_id, seller_rep_id)
+                   DO UPDATE SET
+                       delta_bytes=traffic_daily.delta_bytes+excluded.delta_bytes,
+                       event_count=traffic_daily.event_count+excluded.event_count"""
+            )
+            con.execute("DELETE FROM traffic_events")
+        con.execute(
+            """CREATE INDEX IF NOT EXISTS idx_traffic_daily_seller_day
+               ON traffic_daily(seller_rep_id, event_day)"""
+        )
+        con.commit()
+        con.execute("VACUUM")
 
 
 def _connection_from_env() -> dict[str, Any]:
@@ -149,6 +203,7 @@ def write_backup_package(destination: Path) -> Path:
     with tempfile.TemporaryDirectory(prefix="xui-panel-package-") as td:
         db_path = Path(td) / "database.sqlite3"
         _sqlite_snapshot_to(db_path)
+        _compact_portable_history(db_path)
         tables, counts = _table_summary(db_path)
         connection = _connection_from_env()
         manifest = {
@@ -262,8 +317,13 @@ def _read_package(path: Path, extract_db_to: Path | None = None) -> dict[str, An
     declared_tables = set(manifest.get("tables") or [])
     if declared_tables and declared_tables != set(tables):
         raise ValueError("Backup table manifest does not match the database")
-    if int(manifest.get("format_version") or 0) >= 2:
+    format_version = int(manifest.get("format_version") or 0)
+    if format_version >= 2:
         missing = sorted(EXPECTED_DATA_TABLES - set(tables))
+        if missing:
+            raise ValueError("Backup is incomplete; missing application tables: " + ", ".join(missing))
+    if format_version >= 3:
+        missing = sorted(EXPECTED_V3_TABLES - set(tables))
         if missing:
             raise ValueError("Backup is incomplete; missing application tables: " + ", ".join(missing))
     manifest["tables"] = tables

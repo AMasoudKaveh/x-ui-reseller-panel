@@ -123,7 +123,7 @@ def _traffic_trend(con) -> list[dict[str, Any]]:
     days = [today - timedelta(days=offset) for offset in range(6, -1, -1)]
     totals = {day.isoformat(): 0 for day in days}
 
-    if not table_exists(con, "traffic_events"):
+    if not table_exists(con, "traffic_daily"):
         return [
             {"date": day.isoformat(), "bytes": 0}
             for day in days
@@ -135,13 +135,13 @@ def _traffic_trend(con) -> list[dict[str, Any]]:
     rows = con.execute(
         """
         SELECT
-            date(te.created_at) AS day,
-            COALESCE(SUM(te.delta_bytes), 0) AS total
-        FROM traffic_events te
-        WHERE date(te.created_at) >= date(?)
-          AND date(te.created_at) < date(?)
-          AND COALESCE(te.delta_bytes,0) > 0
-        GROUP BY date(te.created_at)
+            event_day AS day,
+            COALESCE(SUM(delta_bytes), 0) AS total
+        FROM traffic_daily
+        WHERE event_day >= ?
+          AND event_day < ?
+          AND COALESCE(delta_bytes,0) > 0
+        GROUP BY event_day
         """,
         (start, end),
     ).fetchall()

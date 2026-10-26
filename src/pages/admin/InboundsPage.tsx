@@ -5,7 +5,7 @@ import {
   type LiveAdminInbound,
 } from "../../api/adminInbounds";
 
-const LIVE_REFRESH_MS = 3000;
+const LIVE_REFRESH_MS = 15000;
 
 function formatBytes(value: number): string {
   const bytes = Math.max(0, Number(value || 0));

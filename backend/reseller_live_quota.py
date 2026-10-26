@@ -230,6 +230,29 @@ def ensure_live_schema() -> None:
             """
         )
 
+        # Dashboard history is intentionally stored as one aggregate row per
+        # day/ownership pair. The cumulative quota source remains
+        # traffic_ledger and is updated on every live sync; this table only
+        # replaces the unbounded per-client event stream used by charts.
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS traffic_daily(
+                event_day TEXT NOT NULL,
+                owner_rep_id INTEGER NOT NULL DEFAULT 0,
+                seller_rep_id INTEGER NOT NULL DEFAULT 0,
+                delta_bytes INTEGER NOT NULL DEFAULT 0,
+                event_count INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(event_day, owner_rep_id, seller_rep_id)
+            )
+            """
+        )
+        con.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_traffic_daily_seller_day
+            ON traffic_daily(seller_rep_id, event_day)
+            """
+        )
+
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS deleted_client_usage(
@@ -1306,24 +1329,21 @@ def sync_one_client(
         if delta > 0:
             con.execute(
                 """
-                INSERT INTO traffic_events(
-                    created_at,
-                    client_id,
-                    email,
+                INSERT INTO traffic_daily(
+                    event_day,
                     owner_rep_id,
                     seller_rep_id,
-                    prev_panel_total,
-                    current_panel_total,
                     delta_bytes,
-                    cumulative_after,
-                    event_type
+                    event_count
                 )
-                VALUES(?,?,?,?,?,?,?,?,?,?)
+                VALUES(?,?,?,?,1)
+                ON CONFLICT(event_day, owner_rep_id, seller_rep_id)
+                DO UPDATE SET
+                    delta_bytes=traffic_daily.delta_bytes+excluded.delta_bytes,
+                    event_count=traffic_daily.event_count+1
                 """,
                 (
-                    stamp,
-                    client_id,
-                    email,
+                    stamp[:10],
                     to_int(
                         local.get("owner_rep_id"),
                         0,
@@ -1332,11 +1352,7 @@ def sync_one_client(
                         local.get("seller_rep_id"),
                         0,
                     ),
-                    previous_panel,
-                    panel_used,
                     delta,
-                    cumulative,
-                    event_type,
                 ),
             )
 
@@ -2747,7 +2763,23 @@ def panel_client_state(xui: XUIClient, local: dict, online_set: set[str]) -> dic
             "expiry_ms": int(expiry_ms),
         }
 
-    return _STEP7B_OLD_PANEL_CLIENT_STATE(xui, local, online_set)
+    # The bulk inbound snapshot is authoritative for a sync cycle. Falling
+    # back to GET /clients/get/<email> here creates an N+1 request storm for
+    # stale/deleted clients and makes x-ui log one warning per client/poll.
+    # Keep the last persisted state; a later bulk snapshot automatically
+    # recovers the client if it reappears.
+    return {
+        "ok": False,
+        "panel": {},
+        "email": email,
+        "online": False,
+        "enabled": bool(local.get("enabled", 1)),
+        "panel_up_bytes": 0,
+        "panel_down_bytes": 0,
+        "panel_used_bytes": max(0, to_int(local.get("panel_used_bytes"), 0)),
+        "total_limit_bytes": max(0, to_int(local.get("total_limit_bytes"), 0)),
+        "expiry_ms": to_int(local.get("expire_at_ms"), 0),
+    }
 
 
 @router.get("/probe")

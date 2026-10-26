@@ -91,7 +91,7 @@ export default function AdminClientsPage() {
     const refresh = () => {
       if (alive) void load(true);
     };
-    const timer = window.setInterval(refresh, 3000);
+    const timer = window.setInterval(refresh, 15000);
     window.addEventListener("focus", refresh);
 
     return () => {

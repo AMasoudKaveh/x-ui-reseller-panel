@@ -116,7 +116,7 @@ export default function RepresentativesPage({scope="admin"}:{scope?:"admin"|"res
 
     const timer = window.setInterval(() => {
       void loadInbounds(true);
-    }, 3000);
+    }, 15000);
 
     const refresh = () => void loadInbounds(true);
     const visibility = () => {

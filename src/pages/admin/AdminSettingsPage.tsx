@@ -115,7 +115,7 @@ export default function AdminSettingsPage() {
   useEffect(() => {
     void loadSettings(false);
     void loadInbounds();
-    const timer = window.setInterval(() => void loadInbounds(), 3000);
+    const timer = window.setInterval(() => void loadInbounds(), 15000);
     const focus = () => void loadInbounds();
     window.addEventListener("focus", focus);
     return () => {

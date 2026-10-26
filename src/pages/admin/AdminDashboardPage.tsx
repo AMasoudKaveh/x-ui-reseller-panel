@@ -66,7 +66,7 @@ export default function AdminDashboardPage({ onNavigate }: { onNavigate: (page: 
 
     void load();
 
-    const timer = window.setInterval(() => void load(), 3000);
+    const timer = window.setInterval(() => void load(), 30000);
     const focus = () => void load();
     const visibility = () => {
       if (document.visibilityState === "visible") void load();

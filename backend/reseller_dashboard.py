@@ -440,17 +440,17 @@ def get_usage_history(
 
     if table_exists(
         con,
-        "traffic_events",
+        "traffic_daily",
     ):
 
         columns = table_columns(
             con,
-            "traffic_events",
+            "traffic_daily",
         )
 
 
         required = {
-            "created_at",
+            "event_day",
             "seller_rep_id",
             "delta_bytes",
         }
@@ -468,11 +468,7 @@ def get_usage_history(
                 rows = con.execute(
                     """
                     SELECT
-                        substr(
-                            created_at,
-                            1,
-                            10
-                        ) AS event_day,
+                        event_day,
 
                         SUM(
                             CASE
@@ -482,22 +478,14 @@ def get_usage_history(
                             END
                         ) AS total_bytes
 
-                    FROM traffic_events
+                    FROM traffic_daily
 
                     WHERE seller_rep_id = ?
 
-                      AND substr(
-                            created_at,
-                            1,
-                            10
-                          ) >= ?
+                      AND event_day >= ?
 
                     GROUP BY
-                        substr(
-                            created_at,
-                            1,
-                            10
-                        )
+                        event_day
                     """,
                     (
                         reseller_id,
