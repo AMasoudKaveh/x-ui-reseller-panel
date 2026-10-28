@@ -7,6 +7,7 @@ from pathlib import Path
 
 import backend.reseller_live_quota as quota
 from backend.backup_service import _compact_portable_history
+from backend.xui_client import XUIClient
 from scripts.compact_traffic_history import compact
 
 
@@ -83,6 +84,64 @@ class TrafficCompactionTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["panel_used_bytes"], 123)
         self.assertFalse(result["online"])
+
+    def test_direct_client_state_uses_authoritative_used_traffic(self) -> None:
+        class OneClient:
+            def get_client(self, email):
+                return {
+                    "success": True,
+                    "obj": {
+                        "usedTraffic": 987654,
+                        "client": {
+                            "email": email,
+                            "enable": True,
+                            "totalGB": 5_000_000,
+                            "expiryTime": 123456789,
+                        },
+                    },
+                }
+
+        result = quota._direct_client_state(
+            OneClient(),
+            {
+                "email": "one-user",
+                "enabled": 1,
+                "total_limit_bytes": 1,
+                "expire_at_ms": 2,
+            },
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["panel_used_bytes"], 987654)
+        self.assertEqual(result["total_limit_bytes"], 5_000_000)
+        self.assertEqual(result["expiry_ms"], 123456789)
+
+    def test_modern_create_does_not_send_redundant_attach(self) -> None:
+        client = object.__new__(XUIClient)
+        client.default_inbound_ids = []
+        client.request = lambda *_args, **_kwargs: {"success": True}
+        client.get_client = lambda email: {
+            "success": True,
+            "obj": {
+                "client": {"email": email},
+                "inboundIds": [1, 2],
+            },
+        }
+        client.attach = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("modern create must not attach twice")
+        )
+
+        result = client.add_client(
+            email="new-user",
+            total_bytes=1000,
+            limit_ip=0,
+            expiry_ms=0,
+            comment="",
+            group_name="test",
+            inbound_ids=[1, 2],
+            enabled=True,
+        )
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["attach"]["skipped"])
 
 
 if __name__ == "__main__":

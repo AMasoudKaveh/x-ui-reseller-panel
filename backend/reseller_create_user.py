@@ -956,16 +956,19 @@ def create_reseller_user(
         )
 
 
-    panel_confirmation = None
+    panel_confirmation = result.get(
+        "confirmation"
+    )
 
 
     try:
 
-        panel_confirmation = (
-            xui.get_client(
-                username
+        if panel_confirmation is None:
+            panel_confirmation = (
+                xui.get_client(
+                    username
+                )
             )
-        )
 
     except Exception:
         pass

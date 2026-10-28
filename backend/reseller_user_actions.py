@@ -247,9 +247,30 @@ def safe_update(
     for name, payload in attempts:
         try:
             resp = xui.request("POST", "/panel/api/clients/update/" + quote(email, safe=""), json=payload)
-            with contextlib.suppress(Exception):
-                xui.attach(email, ids)
-            return {"ok": True, "method": name, "response": resp, "client": client, "inbound_ids": ids}
+            attach_result = {
+                "ok": True,
+                "skipped": True,
+                "reason": "inbound_ids_sent_with_update",
+            }
+            try:
+                confirmation = xui.get_client(email)
+                obj = confirmation.get("obj", {}) if isinstance(confirmation, dict) else {}
+                confirmed_ids = parse_ids(
+                    obj.get("inboundIds")
+                    or obj.get("inbound_ids")
+                )
+                if not set(ids).issubset(set(confirmed_ids)):
+                    attach_result = xui.attach(email, ids)
+            except Exception:
+                attach_result = xui.attach(email, ids)
+            return {
+                "ok": True,
+                "method": name,
+                "response": resp,
+                "client": client,
+                "inbound_ids": ids,
+                "attach": attach_result,
+            }
         except Exception as e:
             errors.append(f"{name}: {e}")
     raise XUIError("x-ui update failed after all API variants: " + " | ".join(errors[-4:]))
@@ -466,12 +487,10 @@ def modify_user(client_id: int, body: ModifyUserBody, xui_session: str | None = 
     rep = get_reseller_from_session(xui_session)
     rep_id = int(rep["id"])
     local = owned_user(client_id, rep_id)
-    from backend.reseller_live_quota import sync_all
-    sync_result = sync_all(True)
-    if not sync_result.get("ok") or sync_result.get("skipped"):
+    from backend.reseller_live_quota import sync_client_for_mutation
+    sync_result = sync_client_for_mutation(client_id)
+    if not sync_result.get("ok"):
         raise HTTPException(502, "Verified traffic sync failed; user was not modified")
-    if int(client_id) not in set(sync_result.get("verified_client_ids") or []):
-        raise HTTPException(502, "This user's current x-ui traffic could not be verified; user was not modified")
     xui = XUIClient()
     ids = validate_inbounds(rep_id, body.inbound_ids, xui)
     tg = str(body.telegram_user_id or "").strip()
@@ -536,12 +555,10 @@ def reset_usage(client_id: int, xui_session: str | None = Cookie(default=None, a
     rep = get_reseller_from_session(xui_session)
     rep_id = int(rep["id"])
     local = owned_user(client_id, rep_id)
-    from backend.reseller_live_quota import sync_all
-    sync_result = sync_all(True)
-    if not sync_result.get("ok") or sync_result.get("skipped"):
+    from backend.reseller_live_quota import sync_client_for_mutation
+    sync_result = sync_client_for_mutation(client_id)
+    if not sync_result.get("ok"):
         raise HTTPException(502, "Verified traffic sync failed; usage was not reset")
-    if int(client_id) not in set(sync_result.get("verified_client_ids") or []):
-        raise HTTPException(502, "This user's current x-ui traffic could not be verified; usage was not reset")
     email = str(local.get("email") or "")
     xui = XUIClient()
     errors = []
@@ -605,12 +622,10 @@ def remove_user(client_id: int, xui_session: str | None = Cookie(default=None, a
     rep = get_reseller_from_session(xui_session)
     rep_id = int(rep["id"])
     local = owned_user(client_id, rep_id)
-    from backend.reseller_live_quota import sync_all
-    sync_result = sync_all(True)
-    if not sync_result.get("ok") or sync_result.get("skipped"):
+    from backend.reseller_live_quota import sync_client_for_mutation
+    sync_result = sync_client_for_mutation(client_id)
+    if not sync_result.get("ok"):
         raise HTTPException(502, "Verified traffic sync failed; user was not deleted")
-    if int(client_id) not in set(sync_result.get("verified_client_ids") or []):
-        raise HTTPException(502, "This user's current x-ui traffic could not be verified; user was not deleted")
     try:
         panel_result = delete_from_panel(XUIClient(), local)
     except Exception as e:

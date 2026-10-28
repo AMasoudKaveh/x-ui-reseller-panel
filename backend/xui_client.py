@@ -1014,13 +1014,30 @@ class XUIClient:
                     )
                 )
 
+                confirmation = None
+                attach_result = {
+                    "ok": True,
+                    "skipped": True,
+                    "reason": "inbound_ids_sent_with_create",
+                }
 
-                attach_result = (
-                    self.attach(
-                        email,
-                        ids,
+                try:
+                    confirmation = self.get_client(email)
+                    obj = (
+                        confirmation.get("obj", {})
+                        if isinstance(confirmation, dict)
+                        else {}
                     )
-                )
+                    confirmed_ids = int_list(
+                        obj.get("inboundIds")
+                        or obj.get("inbound_ids")
+                    )
+                    if not set(ids).issubset(set(confirmed_ids)):
+                        attach_result = self.attach(email, ids)
+                except Exception:
+                    # Preserve compatibility with x-ui builds that cannot
+                    # immediately return the newly-created client.
+                    attach_result = self.attach(email, ids)
 
 
                 return {
@@ -1034,8 +1051,9 @@ class XUIClient:
                     "response":
                         response,
 
-                    "attach":
-                        attach_result,
+                    "attach": attach_result,
+
+                    "confirmation": confirmation,
 
                     "uuid":
                         client_uuid,

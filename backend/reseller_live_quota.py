@@ -1152,6 +1152,7 @@ def sync_one_client(
     xui: XUIClient,
     local: dict,
     online_set: set[str],
+    state_override: dict | None = None,
 ) -> dict | None:
     client_id = to_int(
         local.get("id"),
@@ -1169,10 +1170,14 @@ def sync_one_client(
     ):
         return None
 
-    state = panel_client_state(
-        xui,
-        local,
-        online_set,
+    state = (
+        state_override
+        if state_override is not None
+        else panel_client_state(
+            xui,
+            local,
+            online_set,
+        )
     )
 
     stamp = now_text()
@@ -2158,6 +2163,130 @@ def load_clients() -> list[dict]:
                 """
             ).fetchall()
         ]
+
+
+def _direct_client_state(
+    xui: XUIClient,
+    local: dict,
+) -> dict:
+    """Read one client's authoritative traffic without scanning every user."""
+    email = str(local.get("email") or "").strip()
+    raw = xui.get_client(email)
+    obj = unwrap_object(raw)
+    client = extract_client(raw)
+
+    if not isinstance(obj, dict) or not isinstance(client, dict):
+        raise RuntimeError("Invalid x-ui client response")
+
+    returned_email = str(client.get("email") or email).strip()
+    if returned_email.casefold() != email.casefold():
+        raise RuntimeError("x-ui returned a different client")
+
+    used = max(
+        0,
+        to_int(
+            obj.get("usedTraffic"),
+            first_number(
+                obj,
+                (
+                    "usedTraffic",
+                    "used_traffic",
+                    "used",
+                    "totalUsed",
+                    "total_used",
+                ),
+            ),
+        ),
+    )
+
+    return {
+        "ok": True,
+        "panel": client,
+        "email": email,
+        "online": False,
+        "enabled": bool(client.get("enable", local.get("enabled", 1))),
+        "panel_up_bytes": 0,
+        "panel_down_bytes": 0,
+        "panel_used_bytes": used,
+        "total_limit_bytes": max(
+            0,
+            to_int(
+                client.get("totalGB"),
+                to_int(local.get("total_limit_bytes"), 0),
+            ),
+        ),
+        "expiry_ms": to_int(
+            client.get("expiryTime"),
+            to_int(local.get("expire_at_ms"), 0),
+        ),
+    }
+
+
+def sync_client_for_mutation(client_id: int) -> dict:
+    """Persist one user's latest traffic before an update/reset/delete."""
+    acquired = _SYNC_LOCK.acquire(timeout=30)
+    if not acquired:
+        return {
+            "ok": False,
+            "error": "traffic_sync_busy",
+        }
+
+    try:
+        ensure_live_schema()
+
+        with connect_db() as con:
+            row = con.execute(
+                """
+                SELECT *
+                FROM clients
+                WHERE id=?
+                  AND COALESCE(status,'')!='deleted'
+                LIMIT 1
+                """,
+                (int(client_id),),
+            ).fetchone()
+
+        if not row:
+            return {
+                "ok": False,
+                "error": "client_not_found",
+            }
+
+        local = dict(row)
+        xui = XUIClient()
+        state = _direct_client_state(
+            xui,
+            local,
+        )
+        result = sync_one_client(
+            xui,
+            local,
+            set(),
+            state_override=state,
+        )
+
+        if not result or not result.get("panel_ok"):
+            return {
+                "ok": False,
+                "error": "client_traffic_not_verified",
+            }
+
+        quota_result = reconcile_quotas(xui)
+
+        return {
+            "ok": True,
+            "client": result,
+            "quota": quota_result,
+        }
+
+    except Exception as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+        }
+
+    finally:
+        _SYNC_LOCK.release()
 
 
 def sync_all(
