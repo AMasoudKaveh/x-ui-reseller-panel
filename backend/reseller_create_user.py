@@ -34,6 +34,7 @@ from backend.reseller_users import (
 from backend.xui_client import (
     XUIClient,
     XUIError,
+    local_xui_inbound_ids,
 )
 
 
@@ -552,8 +553,11 @@ def create_reseller_user(
 
         xui = XUIClient()
 
+        local_ids = local_xui_inbound_ids()
         panel_inbounds = (
-            xui.inbounds()
+            [{"id": inbound_id} for inbound_id in local_ids]
+            if local_ids is not None
+            else xui.inbounds()
         )
 
 

@@ -2567,6 +2567,120 @@ _STEP7B_LAST_ERRORS: list[str] = []
 _STEP7B_LAST_SNAPSHOT_AT = ""
 
 
+def _xui_db_path() -> str:
+    """Return the optional local x-ui SQLite path used for cheap snapshots."""
+    configured = env_string("XUI_DB_PATH", "").strip()
+    if configured:
+        return configured
+    return "/etc/x-ui/x-ui.db"
+
+
+def _step7b_sqlite_snapshot(known_emails: list[str]):
+    """Read live counters without asking x-ui to serialize every inbound.
+
+    The database is opened in read-only mode, so this cannot block or mutate
+    x-ui. Returning ``None`` deliberately falls back to the HTTP snapshot for
+    remote/older x-ui installations.
+    """
+    path = _xui_db_path()
+    if not path or not os.path.isfile(path):
+        return None
+
+    canonical = {
+        _step7b_email(email).casefold(): _step7b_email(email)
+        for email in known_emails
+        if _step7b_email(email)
+    }
+    if not canonical:
+        return {}, set(), []
+
+    try:
+        uri = "file:" + quote(os.path.abspath(path), safe="/:") + "?mode=ro"
+        con = sqlite3.connect(uri, uri=True, timeout=0.25)
+        con.row_factory = sqlite3.Row
+        try:
+            columns = {
+                str(row[1])
+                for row in con.execute("PRAGMA table_info(client_traffics)")
+            }
+            required = {
+                "inbound_id", "enable", "email", "up", "down",
+                "expiry_time", "total", "last_online",
+            }
+            if not required.issubset(columns):
+                return None
+            rows = con.execute(
+                """
+                SELECT
+                    email, inbound_id, enable, up, down,
+                    expiry_time, total, last_online
+                FROM client_traffics
+                WHERE email IS NOT NULL AND email!=''
+                """
+            ).fetchall()
+        finally:
+            con.close()
+    except (OSError, sqlite3.Error):
+        return None
+
+    snapshot: dict[str, dict] = {}
+    online: set[str] = set()
+    current_ms = now_ms()
+    recent_ms = max(15000, POLL_SECONDS * 2500)
+
+    for row in rows:
+        original = canonical.get(_step7b_email(row["email"]).casefold())
+        if not original:
+            continue
+        state = snapshot.setdefault(original, {
+            "email": original,
+            "panel_up_bytes": 0,
+            "panel_down_bytes": 0,
+            "panel_used_bytes": 0,
+            "total_limit_bytes": 0,
+            "expiry_ms": 0,
+            "enabled": None,
+            "online_hint": False,
+            "panel": {},
+            "inbound_ids": [],
+        })
+        inbound_id = to_int(row["inbound_id"], 0)
+        if inbound_id > 0 and inbound_id not in state["inbound_ids"]:
+            state["inbound_ids"].append(inbound_id)
+        up = max(0, to_int(row["up"], 0))
+        down = max(0, to_int(row["down"], 0))
+        # The same global counters may appear on several attached inbounds.
+        # MAX preserves the existing no-double-count accounting rule.
+        state["panel_up_bytes"] = max(state["panel_up_bytes"], up)
+        state["panel_down_bytes"] = max(state["panel_down_bytes"], down)
+        state["panel_used_bytes"] = max(state["panel_used_bytes"], up + down)
+        state["total_limit_bytes"] = max(
+            state["total_limit_bytes"], max(0, to_int(row["total"], 0))
+        )
+        expiry = to_int(row["expiry_time"], 0)
+        if expiry != 0:
+            current_expiry = to_int(state["expiry_ms"], 0)
+            state["expiry_ms"] = (
+                expiry if current_expiry == 0 else max(current_expiry, expiry)
+            )
+        enabled = bool(to_int(row["enable"], 0))
+        state["enabled"] = (
+            enabled if state["enabled"] is None else state["enabled"] and enabled
+        )
+        last_online = to_int(row["last_online"], 0)
+        if 0 < last_online < 10_000_000_000:
+            last_online *= 1000
+        if last_online > 0 and abs(current_ms - last_online) <= recent_ms:
+            state["online_hint"] = True
+            online.add(original)
+
+    # Never let an unrelated/stale local DB replace a configured remote x-ui.
+    minimum_overlap = min(len(canonical), max(1, len(canonical) // 2))
+    if len(snapshot) < minimum_overlap:
+        return None
+    return snapshot, online, []
+
+
 def _step7b_rows(value):
     if isinstance(value, list):
         return value
@@ -2674,6 +2788,10 @@ def _step7b_online_names(data, known_emails: list[str]) -> set[str]:
 
 
 def _step7b_build_snapshot(xui: XUIClient, known_emails: list[str]):
+    sqlite_result = _step7b_sqlite_snapshot(known_emails)
+    if sqlite_result is not None:
+        return sqlite_result
+
     errors: list[str] = []
     canonical = {
         _step7b_email(email).casefold(): _step7b_email(email)

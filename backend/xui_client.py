@@ -4,6 +4,7 @@ import contextlib
 import json
 import os
 import secrets
+import sqlite3
 import uuid
 
 from pathlib import Path
@@ -16,6 +17,30 @@ import urllib3
 
 BASE_DIR = Path(__file__).resolve().parent
 ENV_PATH = BASE_DIR / ".env"
+
+
+def local_xui_inbound_ids() -> list[int] | None:
+    """Return inbound ids from a colocated x-ui DB without a heavy API call.
+
+    ``None`` means the local read-only optimization is unavailable and callers
+    must use the normal HTTP API.
+    """
+    path = env_string("XUI_DB_PATH", "/etc/x-ui/x-ui.db").strip()
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        con = sqlite3.connect(
+            "file:" + quote(os.path.abspath(path), safe="/:") + "?mode=ro",
+            uri=True,
+            timeout=0.25,
+        )
+        try:
+            rows = con.execute("SELECT id FROM inbounds WHERE id > 0").fetchall()
+        finally:
+            con.close()
+    except (OSError, sqlite3.Error):
+        return None
+    return sorted({int(row[0]) for row in rows if int(row[0] or 0) > 0})
 
 
 def read_env_file() -> dict[str, str]:

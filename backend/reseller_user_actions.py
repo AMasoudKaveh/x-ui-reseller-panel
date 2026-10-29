@@ -17,7 +17,13 @@ from pydantic import BaseModel, Field
 from backend.reseller_profile import SESSION_COOKIE, connect_db, get_reseller_from_session
 from backend.reseller_users import ensure_users_schema
 from backend.reseller_create_user import allowed_inbound_ids, expiry_to_ms, gb_to_bytes, normalize_inbound_ids, resolve_expiry_ms
-from backend.xui_client import XUIClient, XUIError, env_bool, env_string
+from backend.xui_client import (
+    XUIClient,
+    XUIError,
+    env_bool,
+    env_string,
+    local_xui_inbound_ids,
+)
 from backend.subscription_upstream import resolve_upstream_subscription_url
 
 router = APIRouter(prefix="/api/reseller", tags=["Reseller User Actions"])
@@ -192,7 +198,13 @@ def validate_inbounds(rep_id: int, requested: list[int], xui: XUIClient) -> list
     ids = normalize_inbound_ids(requested)
     if not ids:
         raise HTTPException(400, "Select at least one inbound")
-    panel_ids = [int(r.get("id") or 0) for r in xui.inbounds() if int(r.get("id") or 0) > 0]
+    panel_ids = local_xui_inbound_ids()
+    if panel_ids is None:
+        panel_ids = [
+            int(r.get("id") or 0)
+            for r in xui.inbounds()
+            if int(r.get("id") or 0) > 0
+        ]
     allowed = set(allowed_inbound_ids(rep_id, panel_ids))
     if any(i not in allowed for i in ids):
         raise HTTPException(403, "One or more selected inbounds are not allowed")
