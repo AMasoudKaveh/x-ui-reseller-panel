@@ -56,6 +56,11 @@ class RepresentativeRechargeBody(BaseModel):
     add_bytes: int = Field(ge=0)
 
 
+class BulkAttachRepresentativeInboundBody(BaseModel):
+    representative_ids: list[int] = Field(default_factory=list, min_length=1, max_length=5000)
+    inbound_id: int = Field(gt=0)
+
+
 def now_text() -> str:
     return datetime.now().replace(microsecond=0).isoformat(sep=" ")
 
@@ -1162,6 +1167,66 @@ def list_representatives(
         "representatives": payload,
         "archived_used_bytes": archived_used_bytes,
     }
+
+
+@router.post("/representatives/bulk-attach-inbound")
+def bulk_attach_representative_inbound(
+    body: BulkAttachRepresentativeInboundBody,
+    xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+):
+    require_admin(xui_session)
+    ensure_admin_schema()
+    inbound_id = validate_allowed_inbounds([body.inbound_id])[0]
+    rep_ids = list(dict.fromkeys(int(value) for value in body.representative_ids if int(value) > 0))
+    updated: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+
+    with connect_db() as con:
+        for rep_id in rep_ids:
+            row = con.execute(
+                "SELECT * FROM representatives WHERE id=? AND COALESCE(deleted_at,'')=''",
+                (rep_id,),
+            ).fetchone()
+            if not row:
+                errors.append({"id": rep_id, "detail": "Representative not found"})
+                continue
+
+            raw_ids = row["allowed_inbound_ids"]
+            # NULL/empty is the legacy unrestricted state, so it already grants
+            # access to every live inbound and must remain unrestricted.
+            if raw_ids is None or str(raw_ids).strip() == "":
+                skipped.append({"id": rep_id, "username": row["username"], "detail": "Already unrestricted"})
+                continue
+
+            current = parse_inbound_ids(raw_ids)
+            if inbound_id in current:
+                skipped.append({"id": rep_id, "username": row["username"], "detail": "Already attached"})
+                continue
+
+            parent_id = int(row["parent_rep_id"] or 0)
+            if parent_id:
+                parent = con.execute(
+                    "SELECT allowed_inbound_ids FROM representatives WHERE id=? AND COALESCE(deleted_at,'')=''",
+                    (parent_id,),
+                ).fetchone()
+                if not parent:
+                    errors.append({"id": rep_id, "detail": "Parent representative not found"})
+                    continue
+                parent_raw = parent["allowed_inbound_ids"]
+                if parent_raw is not None and str(parent_raw).strip() != "" and inbound_id not in parse_inbound_ids(parent_raw):
+                    errors.append({"id": rep_id, "detail": "Parent representative does not have this inbound"})
+                    continue
+
+            merged = current + [inbound_id]
+            con.execute(
+                "UPDATE representatives SET allowed_inbound_ids=?, updated_at=? WHERE id=?",
+                (json.dumps(merged), now_text(), rep_id),
+            )
+            updated.append({"id": rep_id, "username": row["username"]})
+        con.commit()
+
+    return {"ok": not errors, "updated": updated, "skipped": skipped, "errors": errors}
 
 
 @router.post("/representatives")

@@ -20,6 +20,12 @@
 @media(max-width:1100px){.up-table-card{overflow-x:auto}.up-table-head,.up-user-row{min-width:1120px}.cu-body{grid-template-columns:1fr}.cu-inbounds-column{border-left:0;border-top:1px solid #2c2d31}.cu-modal{overflow:auto}.cu-body{overflow:visible}}
 @media(max-width:760px){.up-stats-grid{grid-template-columns:1fr}.up-toolbar{flex-wrap:wrap}.up-search-box{width:100%}.up-sort-summary{display:none}.cu-backdrop{padding:0}.cu-modal{width:100vw;max-height:100vh;height:100vh;border-radius:0}.cu-grid-two{grid-template-columns:1fr}.cu-form-column,.cu-inbounds-column{padding:20px}.cu-header,.cu-footer{padding-left:20px;padding-right:20px}}
 
+.bulk-inbound-modal{width:min(620px,calc(100vw - 32px));max-height:min(760px,calc(100vh - 32px));display:flex;flex-direction:column}
+.bulk-inbound-body{min-height:0;overflow:auto;padding:24px}
+.bulk-inbound-body .cu-inbound-list{max-height:430px;overflow:auto}
+.bulk-inbound-empty{padding:32px 16px;text-align:center;color:#898d94}
+@media(max-width:760px){.bulk-inbound-modal{width:100vw;height:100dvh;max-height:100dvh}.bulk-inbound-body{padding:18px;flex:1}.bulk-inbound-body .cu-inbound-list{max-height:none}.bulk-inbound-modal .cu-footer{padding-bottom:max(18px,env(safe-area-inset-bottom))}}
+
 /* Users action interactions patch v4 */
 .up-sort-option{padding:0;display:flex;align-items:center;gap:0}.up-sort-option-main{min-width:0;flex:1;min-height:30px;display:flex;align-items:center;gap:9px;padding:5px 8px;border:0;border-radius:6px;background:transparent;color:#e4e5e7;text-align:left;cursor:pointer}.up-sort-option-main span{font-size:12px;font-weight:500}.up-sort-option.active .up-sort-option-main{background:transparent}
 .up-actions{position:relative;overflow:visible}.ua-action-wrap{position:relative}.ua-action-toast{position:absolute;z-index:120;right:2px;bottom:38px;min-width:max-content;padding:9px 15px;border-radius:7px;background:#4d82cf;color:#101820;font-size:12px;font-weight:600;box-shadow:0 12px 34px rgba(0,0,0,.35);animation:ua-pop .14s ease-out}.ua-action-toast:after{content:"";position:absolute;right:26px;bottom:-5px;width:10px;height:10px;background:#4d82cf;transform:rotate(45deg)}@keyframes ua-pop{from{opacity:0;transform:translateY(5px) scale(.97)}to{opacity:1;transform:none}}

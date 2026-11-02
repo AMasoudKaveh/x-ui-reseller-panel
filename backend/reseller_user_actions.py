@@ -51,6 +51,11 @@ class BulkDeleteBody(BaseModel):
     client_ids: list[int] = Field(default_factory=list, min_length=1, max_length=100)
 
 
+class BulkAttachInboundBody(BaseModel):
+    client_ids: list[int] = Field(default_factory=list, min_length=1, max_length=5000)
+    inbound_id: int = Field(gt=0)
+
+
 def now_text() -> str:
     return datetime.now().isoformat(sep=" ", timespec="seconds")
 
@@ -665,6 +670,50 @@ def remove_user(client_id: int, xui_session: str | None = Cookie(default=None, a
         """, (rep_id, rep_id))
         con.commit()
     return {"ok": True, "deleted": local.get("email"), "archived_used_bytes": archived_used, "panel_delete": panel_result}
+
+
+@router.post("/users/bulk-attach-inbound")
+def bulk_attach_inbound(body: BulkAttachInboundBody, xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
+    rep = get_reseller_from_session(xui_session)
+    rep_id = int(rep["id"])
+    xui = XUIClient()
+    inbound_id = validate_inbounds(rep_id, [body.inbound_id], xui)[0]
+    client_ids = list(dict.fromkeys(int(value) for value in body.client_ids if int(value) > 0))
+    updated: list[dict] = []
+    skipped: list[dict] = []
+    errors: list[dict] = []
+
+    # Every client is synchronised immediately before mutation. This preserves
+    # the last verified x-ui counters in the cumulative ledger even when a
+    # large selection is changed at once.
+    from backend.reseller_live_quota import sync_client_for_mutation
+
+    for client_id in client_ids:
+        try:
+            local = owned_user(client_id, rep_id)
+            current = parse_ids(local.get("inbound_ids"))
+            if inbound_id in current:
+                skipped.append({"id": client_id, "username": local.get("email"), "detail": "Already attached"})
+                continue
+            sync_result = sync_client_for_mutation(client_id)
+            if not sync_result.get("ok"):
+                raise HTTPException(502, "Verified traffic sync failed; user was not modified")
+            merged = current + [inbound_id]
+            result = safe_update(xui=xui, local=local, rep_id=rep_id, inbound_ids=merged)
+            client = result["client"]
+            with connect_db() as con:
+                con.execute(
+                    "UPDATE clients SET uuid=?,sub_id=?,inbound_ids=?,updated_at=? WHERE id=? AND seller_rep_id=?",
+                    (client["id"], client["subId"], json.dumps(merged), now_text(), client_id, rep_id),
+                )
+                con.commit()
+            updated.append({"id": client_id, "username": local.get("email")})
+        except HTTPException as exc:
+            errors.append({"id": client_id, "detail": str(exc.detail)})
+        except Exception as exc:
+            errors.append({"id": client_id, "detail": str(exc)})
+
+    return {"ok": not errors, "updated": updated, "skipped": skipped, "errors": errors}
 
 
 @router.post("/users/bulk-delete")

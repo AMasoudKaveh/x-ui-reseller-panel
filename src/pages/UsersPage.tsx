@@ -20,6 +20,7 @@ import {
   QrCode,
   RefreshCcw,
   Search,
+  Server,
   Signal,
   SortAsc,
   Trash2,
@@ -41,17 +42,23 @@ import ModifyUserModal
 import SubscriptionModal
   from "../components/SubscriptionModal";
 
+import BulkAttachInboundModal
+  from "../components/BulkAttachInboundModal";
+
 import { copyTextToClipboard }
   from "../utils/clipboard";
 
 import {
   getUserAccess,
+  attachInboundBulk,
   removeUser,
   removeUsersBulk,
   resetUserUsage,
   revokeSubscription,
   toggleUser
 } from "../api/userActions";
+
+import { getXuiInbounds, type XuiInbound } from "../api/createUser";
 
 
 import {
@@ -334,6 +341,9 @@ export default function UsersPage() {
   const [bulkCreateOpen, setBulkCreateOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkAttachOpen, setBulkAttachOpen] = useState(false);
+  const [bulkAttaching, setBulkAttaching] = useState(false);
+  const [bulkInbounds, setBulkInbounds] = useState<XuiInbound[]>([]);
 
 
   const [
@@ -719,6 +729,34 @@ const [
     }
   };
 
+  const openBulkAttach = async () => {
+    try {
+      setBulkInbounds(await getXuiInbounds());
+      setBulkAttachOpen(true);
+    } catch (err) {
+      showGlobalToast(err instanceof Error ? err.message : "Unable to load inbounds");
+    }
+  };
+
+  const attachSelected = async (inboundId: number) => {
+    const ids = Array.from(selectedIds);
+    if (!ids.length) return;
+    setBulkAttaching(true);
+    try {
+      const result = await attachInboundBulk(ids, inboundId);
+      setSelectedIds(new Set(result.errors.map(item => item.id)));
+      setBulkAttachOpen(false);
+      showGlobalToast(result.errors.length
+        ? `${result.updated.length} updated, ${result.errors.length} failed`
+        : `${result.updated.length} updated${result.skipped.length ? `, ${result.skipped.length} already attached` : ""}`);
+      await loadUsers(true);
+    } catch (err) {
+      showGlobalToast(err instanceof Error ? err.message : "Bulk inbound update failed");
+    } finally {
+      setBulkAttaching(false);
+    }
+  };
+
 
   const copyText = async (
     value: string
@@ -863,6 +901,9 @@ const [
 
 
         <div className="users-header-actions">
+          {selectedIds.size ? <button className="bulk-action-button" type="button" disabled={bulkAttaching} onClick={() => void openBulkAttach()}>
+            <Server size={19}/>{`Add Inbound (${selectedIds.size})`}
+          </button> : null}
           {selectedIds.size ? <button className="bulk-delete-button" type="button" disabled={bulkDeleting} onClick={() => void deleteSelected()}>
             <Trash2 size={19}/>{bulkDeleting ? "Removing…" : `Delete Selected (${selectedIds.size})`}
           </button> : null}
@@ -1916,6 +1957,15 @@ const [
         username={subscriptionUser?.username ?? ""}
         onClose={() => setSubscriptionUser(null)}
         onCopied={showGlobalToast}
+      />
+
+      <BulkAttachInboundModal
+        open={bulkAttachOpen}
+        count={selectedIds.size}
+        busy={bulkAttaching}
+        inbounds={bulkInbounds.filter(item => item.enabled !== false).map(item => ({id:item.id,label:item.label || item.remark || `Inbound ${item.id}`,detail:[item.protocol,item.network,item.security].filter(Boolean).join(" · ").toUpperCase()}))}
+        onClose={() => { if (!bulkAttaching) setBulkAttachOpen(false); }}
+        onConfirm={attachSelected}
       />
 
       {

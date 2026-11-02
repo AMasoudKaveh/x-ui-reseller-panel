@@ -138,6 +138,20 @@ export async function getAdminInbounds(): Promise<AdminInbound[]> {
   return data.inbounds || [];
 }
 
+export type BulkAttachInboundResult = {
+  ok: boolean;
+  updated: Array<{ id: number; username: string }>;
+  skipped: Array<{ id: number; username?: string; detail: string }>;
+  errors: Array<{ id: number; detail: string }>;
+};
+
+export async function bulkAttachAdminRepresentativeInbound(representativeIds: number[], inboundId: number): Promise<BulkAttachInboundResult> {
+  return api<BulkAttachInboundResult>("/api/admin/representatives/bulk-attach-inbound", {
+    method: "POST",
+    body: JSON.stringify({ representative_ids: representativeIds, inbound_id: inboundId }),
+  });
+}
+
 export async function createAdminRepresentative(
   input: RepresentativeInput & { password: string },
 ): Promise<AdminRepresentative> {

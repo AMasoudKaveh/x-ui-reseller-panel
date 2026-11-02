@@ -22,6 +22,7 @@ import {
   X
 } from "lucide-react";
 import {
+  bulkAttachAdminRepresentativeInbound,
   createAdminRepresentative,
   deleteAdminRepresentative,
   getAdminInbounds,
@@ -43,6 +44,7 @@ import {
   type AdminRepresentativeStatus,
   type RepresentativeDeletionPreview,
 } from "../../api/adminRepresentatives";
+import BulkAttachInboundModal from "../../components/BulkAttachInboundModal";
 
 type SortKey = "username" | "created" | "updated" | "usage" | "users";
 
@@ -80,6 +82,9 @@ export default function RepresentativesPage({scope="admin"}:{scope?:"admin"|"res
   const [deleteTarget, setDeleteTarget] = useState<AdminRepresentative | null>(null);
   const [deletePreview, setDeletePreview] = useState<RepresentativeDeletionPreview | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkAttachOpen, setBulkAttachOpen] = useState(false);
+  const [bulkAttaching, setBulkAttaching] = useState(false);
 
   const showToast = (message:string) => {
     setToast(message);
@@ -144,6 +149,31 @@ export default function RepresentativesPage({scope="admin"}:{scope?:"admin"|"res
     });
   }, [rows,search,sortKey]);
 
+  const toggleSelected = (repId:number) => setSelectedIds(current => {
+    const next = new Set(current);
+    if (next.has(repId)) next.delete(repId); else next.add(repId);
+    return next;
+  });
+
+  const attachInboundToSelected = async (inboundId:number) => {
+    const ids = Array.from(selectedIds);
+    if (!ids.length || isReseller) return;
+    setBulkAttaching(true);
+    try {
+      const result = await bulkAttachAdminRepresentativeInbound(ids, inboundId);
+      setSelectedIds(new Set(result.errors.map(item => item.id)));
+      setBulkAttachOpen(false);
+      showToast(result.errors.length
+        ? `${result.updated.length} updated, ${result.errors.length} failed`
+        : `${result.updated.length} updated${result.skipped.length ? `, ${result.skipped.length} already assigned` : ""}`);
+      await loadRows(true);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Bulk inbound update failed");
+    } finally {
+      setBulkAttaching(false);
+    }
+  };
+
   const active = rows.filter(r=>r.status==="Active").length;
   // Subtree usage is intentionally repeated on ancestors for quota charging;
   // global traffic must sum direct usage only to avoid double counting.
@@ -205,7 +235,10 @@ export default function RepresentativesPage({scope="admin"}:{scope?:"admin"|"res
     <>
       <header className="page-header users-header">
         <div><div className="page-title-row"><h1>{isReseller?"Sub-representatives":"Representatives"}</h1><span className="help-chip">?</span></div><p>{isReseller?"Manage your direct reseller network and subtree traffic":"Manage reseller accounts, quota and inbound access"}</p></div>
-        <button className="up-create-button" type="button" onClick={()=>setCreateOpen(true)}><Plus size={20}/>Create Representative</button>
+        <div className="users-header-actions">
+          {!isReseller && selectedIds.size ? <button className="bulk-action-button" type="button" onClick={()=>setBulkAttachOpen(true)}><Server size={19}/>Add Inbound ({selectedIds.size})</button> : null}
+          <button className="up-create-button" type="button" onClick={()=>setCreateOpen(true)}><Plus size={20}/>Create Representative</button>
+        </div>
       </header>
 
       <main className="rp-page" onClick={()=>{setMenuFor(null);setSortOpen(false)}}>
@@ -227,13 +260,13 @@ export default function RepresentativesPage({scope="admin"}:{scope?:"admin"|"res
         </section>
 
         <section className="rp-table-card">
-          <div className="rp-table-head"><div>Representative</div><div>Status</div><div>Traffic Usage</div><div>Users</div><div>Allowed Inbounds</div><div/></div>
+          <div className="rp-table-head"><div className="bulk-client-heading">{!isReseller?<label className="up-check"><input type="checkbox" checked={visible.length>0&&visible.every(rep=>selectedIds.has(rep.id))} onChange={event=>{const checked=event.target.checked;setSelectedIds(current=>{const next=new Set(current);visible.forEach(rep=>checked?next.add(rep.id):next.delete(rep.id));return next})}}/><span/></label>:null}Representative</div><div>Status</div><div>Traffic Usage</div><div>Users</div><div>Allowed Inbounds</div><div/></div>
           {visible.map(rep => {
             const usedGB = bytesToGB(rep.used_bytes);
             const quotaGB = bytesToGB(rep.quota_bytes);
             const pct = quotaGB > 0 ? Math.min(100, usedGB / quotaGB * 100) : 0;
             return <div className="rp-row" key={rep.id}>
-              <div className="rp-name"><span className={`rp-presence ${rep.status==="Active"?"active":""}`}/><div><strong>{rep.username}</strong><span>R-{rep.id} · {rep.created_at}{rep.parent_username?` · Parent: ${rep.parent_username}`:" · Admin root"}</span></div></div>
+              <div className="rp-name">{!isReseller?<label className="up-check" onClick={event=>event.stopPropagation()}><input type="checkbox" checked={selectedIds.has(rep.id)} onChange={()=>toggleSelected(rep.id)}/><span/></label>:null}<span className={`rp-presence ${rep.status==="Active"?"active":""}`}/><div><strong>{rep.username}</strong><span>R-{rep.id} · {rep.created_at}{rep.parent_username?` · Parent: ${rep.parent_username}`:" · Admin root"}</span></div></div>
               <div><span className={`rp-status-pill ${rep.status==="Active"?"active":"suspended"}`}>{rep.status==="Active"?<Wifi size={13}/>:<Ban size={13}/>} {rep.ancestor_locked?"Upstream blocked":rep.status}</span></div>
               <div className="rp-usage"><div className="up-usage-progress"><div className="up-usage-fill" style={{width:`${pct}%`}}/></div><div className="up-usage-line"><span>{usedGB.toFixed(1)} / {quotaGB.toFixed(1)} GB</span><span>{pct.toFixed(0)}%</span></div><small>Lifetime: direct {bytesToGB(rep.direct_used_bytes||0).toFixed(1)} · network {bytesToGB(rep.descendant_used_bytes||0).toFixed(1)} GB</small></div>
               <div className="rp-users"><strong>{rep.users}</strong><span>{rep.online} online · {rep.descendant_count||0} sub-reps</span></div>
@@ -308,6 +341,14 @@ export default function RepresentativesPage({scope="admin"}:{scope?:"admin"|"res
         loading={deleteLoading}
         onClose={()=>{setDeleteTarget(null);setDeletePreview(null)}}
         onConfirm={remove}
+      />
+      <BulkAttachInboundModal
+        open={!isReseller && bulkAttachOpen}
+        count={selectedIds.size}
+        busy={bulkAttaching}
+        inbounds={inbounds.filter(item=>item.enabled!==false).map(item=>({id:item.id,label:item.label||item.name||`Inbound ${item.id}`,detail:protocolLabel(item)}))}
+        onClose={()=>{if(!bulkAttaching)setBulkAttachOpen(false)}}
+        onConfirm={attachInboundToSelected}
       />
     </>
   );

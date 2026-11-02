@@ -111,3 +111,15 @@ export async function removeUsersBulk(clientIds: number[]): Promise<{
     body: JSON.stringify({ client_ids: clientIds }),
   });
 }
+
+export async function attachInboundBulk(clientIds: number[], inboundId: number): Promise<{
+  ok: boolean;
+  updated: Array<{ id: number; username: string }>;
+  skipped: Array<{ id: number; username?: string; detail: string }>;
+  errors: Array<{ id: number; detail: string }>;
+}> {
+  return request("/api/reseller/users/bulk-attach-inbound", {
+    method: "POST",
+    body: JSON.stringify({ client_ids: clientIds, inbound_id: inboundId }),
+  });
+}
