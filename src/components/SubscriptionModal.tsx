@@ -1,6 +1,7 @@
 import { Copy, Link2, LoaderCircle, QrCode, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getUserAccess, type UserAccessInfo } from "../api/userActions";
+import { copyTextToClipboard } from "../utils/clipboard";
 
 type Props = {
   open: boolean;
@@ -9,16 +10,6 @@ type Props = {
   onClose: () => void;
   onCopied?: (message: string) => void;
 };
-
-async function copyText(text: string) {
-  if (navigator.clipboard && window.isSecureContext) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-  const ta = document.createElement("textarea");
-  ta.value = text; ta.style.position = "fixed"; ta.style.left = "-9999px";
-  document.body.appendChild(ta); ta.focus(); ta.select(); document.execCommand("copy"); ta.remove();
-}
 
 export default function SubscriptionModal({ open, userId, username, onClose, onCopied }: Props) {
   const [data, setData] = useState<UserAccessInfo | null>(null);
@@ -40,7 +31,8 @@ export default function SubscriptionModal({ open, userId, username, onClose, onC
 
   const copy = async (value: string, message: string) => {
     if (!value) return;
-    await copyText(value); onCopied?.(message);
+    const copied = await copyTextToClipboard(value);
+    onCopied?.(copied ? message : "Clipboard access was denied by the browser");
   };
 
   return <div className="sq-backdrop" onMouseDown={e=>e.target===e.currentTarget && onClose()}>

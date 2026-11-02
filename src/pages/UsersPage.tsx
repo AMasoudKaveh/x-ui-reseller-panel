@@ -41,6 +41,9 @@ import ModifyUserModal
 import SubscriptionModal
   from "../components/SubscriptionModal";
 
+import { copyTextToClipboard }
+  from "../utils/clipboard";
+
 import {
   getUserAccess,
   removeUser,
@@ -720,25 +723,10 @@ const [
   const copyText = async (
     value: string
   ) => {
-
-    if (
-      navigator.clipboard
-      &&
-      window.isSecureContext
-    ) {
-      await navigator.clipboard.writeText(value);
-      return;
+    const copied = await copyTextToClipboard(value);
+    if (!copied) {
+      throw new Error("Clipboard access was denied by the browser");
     }
-
-    const textarea = document.createElement("textarea");
-    textarea.value = value;
-    textarea.style.position = "fixed";
-    textarea.style.left = "-9999px";
-    document.body.appendChild(textarea);
-    textarea.focus();
-    textarea.select();
-    document.execCommand("copy");
-    textarea.remove();
   };
 
 
@@ -772,8 +760,7 @@ const [
   const handleCopyConfigs = async (user: ResellerUser) => {
     try {
       const access = await getUserAccess(user.id);
-      const configs = access.links.join("\
-");
+      const configs = access.links.join("\n");
       if (!configs) {
         throw new Error("No config links returned by x-ui");
       }
