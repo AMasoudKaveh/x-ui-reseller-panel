@@ -26,6 +26,7 @@ import {
   Trash2,
   Unlink,
   UserCheck,
+  UserX,
   UsersRound,
   Wifi
 } from "lucide-react";
@@ -44,6 +45,9 @@ import SubscriptionModal
 
 import BulkAttachInboundModal
   from "../components/BulkAttachInboundModal";
+
+import DisabledCleanupModal
+  from "../components/DisabledCleanupModal";
 
 import { copyTextToClipboard }
   from "../utils/clipboard";
@@ -344,6 +348,7 @@ export default function UsersPage() {
   const [bulkAttachOpen, setBulkAttachOpen] = useState(false);
   const [bulkAttaching, setBulkAttaching] = useState(false);
   const [bulkInbounds, setBulkInbounds] = useState<XuiInbound[]>([]);
+  const [disabledCleanupOpen, setDisabledCleanupOpen] = useState(false);
 
 
   const [
@@ -909,6 +914,9 @@ const [
           </button> : null}
           <button className="bulk-action-button" type="button" onClick={() => setBulkCreateOpen(true)}>
             <Layers3 size={19}/>Add Bulk
+          </button>
+          <button className="bulk-delete-button" type="button" onClick={() => setDisabledCleanupOpen(true)}>
+            <UserX size={19}/>Disabled Cleanup
           </button>
           <button className="up-create-button" type="button" onClick={() => setCreateOpen(true)}>
             <Plus size={20}/>Create User
@@ -1966,6 +1974,13 @@ const [
         inbounds={bulkInbounds.filter(item => item.enabled !== false).map(item => ({id:item.id,label:item.label || item.remark || `Inbound ${item.id}`,detail:[item.protocol,item.network,item.security].filter(Boolean).join(" · ").toUpperCase()}))}
         onClose={() => { if (!bulkAttaching) setBulkAttachOpen(false); }}
         onConfirm={attachSelected}
+      />
+
+      <DisabledCleanupModal
+        open={disabledCleanupOpen}
+        onClose={() => setDisabledCleanupOpen(false)}
+        onCompleted={async () => { await loadUsers(true); }}
+        onToast={showGlobalToast}
       />
 
       {

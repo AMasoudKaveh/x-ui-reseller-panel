@@ -117,6 +117,8 @@ def ensure_users_schema() -> None:
                     NOT NULL
                     DEFAULT 1,
 
+                disabled_at TEXT,
+
                 group_name TEXT,
 
                 limit_ip INTEGER

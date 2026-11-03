@@ -133,6 +133,7 @@ def ensure_live_schema() -> None:
     with connect_db() as con:
         if not table_exists(con, "clients"):
             return
+        had_disabled_at = "disabled_at" in table_columns(con, "clients")
 
         # Representative quota state is kept separate from manual status.
         # status becomes quota_blocked only while the traffic lock is active,
@@ -171,12 +172,23 @@ def ensure_live_schema() -> None:
             "quota_prev_status": "TEXT",
             "quota_disabled_at": "TEXT",
             "last_panel_sync_at": "TEXT",
+            "disabled_at": "TEXT",
         }.items():
             add_column_if_missing(
                 con,
                 "clients",
                 name,
                 sql_type,
+            )
+
+        if not had_disabled_at:
+            con.execute(
+                """
+                UPDATE clients
+                SET disabled_at=COALESCE(NULLIF(quota_disabled_at,''), NULLIF(updated_at,''), NULLIF(created_at,''))
+                WHERE COALESCE(enabled,1)=0
+                  AND COALESCE(rep_quota_hold,0)=0
+                """
             )
 
         con.execute(
@@ -1482,6 +1494,10 @@ def sync_one_client(
                 enabled=?,
                 status=?,
                 disable_reason=?,
+                disabled_at=CASE
+                    WHEN ?=0 THEN COALESCE(disabled_at, ?)
+                    ELSE NULL
+                END,
                 last_panel_sync_at=?,
                 updated_at=?
             WHERE id=?
@@ -1496,6 +1512,8 @@ def sync_one_client(
                 enabled,
                 status,
                 disable_reason,
+                enabled,
+                stamp,
                 stamp,
                 stamp,
                 client_id,

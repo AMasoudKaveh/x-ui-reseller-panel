@@ -56,6 +56,11 @@ class BulkAttachInboundBody(BaseModel):
     inbound_id: int = Field(gt=0)
 
 
+class DisabledCleanupBody(BaseModel):
+    mode: str = "all"
+    days: int = Field(default=30, ge=1, le=3650)
+
+
 def now_text() -> str:
     return datetime.now().isoformat(sep=" ", timespec="seconds")
 
@@ -526,11 +531,11 @@ def modify_user(client_id: int, body: ModifyUserBody, xui_session: str | None = 
     c = result["client"]
     with connect_db() as con:
         con.execute("""
-            UPDATE clients SET uuid=?,sub_id=?,inbound_ids=?,total_limit_bytes=?,expire_at_ms=?,enabled=?,status=?,panel_comment=?,group_name=?,limit_ip=?,updated_at=?
+            UPDATE clients SET uuid=?,sub_id=?,inbound_ids=?,total_limit_bytes=?,expire_at_ms=?,enabled=?,status=?,panel_comment=?,group_name=?,limit_ip=?,disabled_at=CASE WHEN ?=0 THEN COALESCE(disabled_at,?) ELSE NULL END,updated_at=?
             WHERE id=? AND seller_rep_id=?
         """, (
             c["id"], c["subId"], json.dumps(ids), c["totalGB"], c["expiryTime"], 1 if c["enable"] else 0,
-            "active" if c["enable"] else "disabled", c["comment"], c["group"], c["limitIp"], now_text(), int(client_id), rep_id,
+            "active" if c["enable"] else "disabled", c["comment"], c["group"], c["limitIp"], 1 if c["enable"] else 0, now_text(), now_text(), int(client_id), rep_id,
         ))
         con.commit()
     return {"ok": True, "xui_method": result["method"]}
@@ -560,8 +565,8 @@ def toggle_user(client_id: int, body: ToggleBody, xui_session: str | None = Cook
     except Exception as e:
         raise HTTPException(502, str(e))
     with connect_db() as con:
-        con.execute("UPDATE clients SET enabled=?,status=?,updated_at=? WHERE id=? AND seller_rep_id=?", (
-            1 if body.enabled else 0, "active" if body.enabled else "disabled", now_text(), int(client_id), rep_id,
+        con.execute("UPDATE clients SET enabled=?,status=?,disabled_at=CASE WHEN ?=0 THEN COALESCE(disabled_at,?) ELSE NULL END,updated_at=? WHERE id=? AND seller_rep_id=?", (
+            1 if body.enabled else 0, "active" if body.enabled else "disabled", 1 if body.enabled else 0, now_text(), now_text(), int(client_id), rep_id,
         ))
         con.commit()
     return {"ok": True, "enabled": body.enabled, "xui_method": result["method"]}
@@ -632,6 +637,64 @@ def revoke_subscription(client_id: int, xui_session: str | None = Cookie(default
         con.execute("UPDATE clients SET sub_id=?,updated_at=? WHERE id=? AND seller_rep_id=?", (new_sub, now_text(), int(client_id), rep_id))
         con.commit()
     return {"ok": True, "sub_id": new_sub, "xui_method": result["method"]}
+
+
+def disabled_cleanup_targets(rep_id: int, body: DisabledCleanupBody) -> list[dict]:
+    mode = str(body.mode or "").strip().lower()
+    if mode not in {"all", "older_than"}:
+        raise HTTPException(400, "Mode must be all or older_than")
+    from backend.reseller_live_quota import ensure_live_schema
+    ensure_live_schema()
+    with connect_db() as con:
+        client_columns = table_columns(con, "clients")
+        hold_filters = ["COALESCE(rep_quota_hold,0)=0"]
+        if "rep_admin_hold" in client_columns:
+            hold_filters.append("COALESCE(rep_admin_hold,0)=0")
+        params: list = [int(rep_id)]
+        age_filter = ""
+        if mode == "older_than":
+            age_filter = "AND datetime(disabled_at) <= datetime('now', ?)"
+            params.append(f"-{int(body.days)} days")
+        rows = con.execute(
+            f"""
+            SELECT id,email,status,disable_reason,disabled_at
+            FROM clients
+            WHERE seller_rep_id=?
+              AND COALESCE(status,'')!='deleted'
+              AND COALESCE(enabled,1)=0
+              AND {' AND '.join(hold_filters)}
+              AND COALESCE(disabled_at,'')!=''
+              {age_filter}
+            ORDER BY datetime(disabled_at) ASC, id ASC
+            """,
+            params,
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+@router.post("/users/disabled-cleanup/preview")
+def preview_disabled_cleanup(body: DisabledCleanupBody, xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
+    rep = get_reseller_from_session(xui_session)
+    rows = disabled_cleanup_targets(int(rep["id"]), body)
+    return {"ok": True, "count": len(rows), "users": rows[:250], "truncated": len(rows) > 250}
+
+
+@router.post("/users/disabled-cleanup/execute")
+def execute_disabled_cleanup(body: DisabledCleanupBody, xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
+    rep = get_reseller_from_session(xui_session)
+    rows = disabled_cleanup_targets(int(rep["id"]), body)
+    deleted: list[dict] = []
+    errors: list[dict] = []
+    for row in rows:
+        client_id = int(row["id"])
+        try:
+            result = remove_user(client_id, xui_session)
+            deleted.append({"id": client_id, "username": result.get("deleted")})
+        except HTTPException as exc:
+            errors.append({"id": client_id, "username": row.get("email"), "detail": str(exc.detail)})
+        except Exception as exc:
+            errors.append({"id": client_id, "username": row.get("email"), "detail": str(exc)})
+    return {"ok": not errors, "deleted": deleted, "errors": errors}
 
 
 @router.delete("/users/{client_id}")

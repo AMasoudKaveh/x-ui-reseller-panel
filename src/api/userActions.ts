@@ -123,3 +123,29 @@ export async function attachInboundBulk(clientIds: number[], inboundId: number):
     body: JSON.stringify({ client_ids: clientIds, inbound_id: inboundId }),
   });
 }
+
+export type DisabledCleanupMode = "all" | "older_than";
+export type DisabledCleanupPreview = {
+  ok: boolean;
+  count: number;
+  users: Array<{ id: number; email: string; status: string; disable_reason: string; disabled_at: string }>;
+  truncated: boolean;
+};
+
+export async function previewDisabledCleanup(mode: DisabledCleanupMode, days: number): Promise<DisabledCleanupPreview> {
+  return request("/api/reseller/users/disabled-cleanup/preview", {
+    method: "POST",
+    body: JSON.stringify({ mode, days }),
+  });
+}
+
+export async function executeDisabledCleanup(mode: DisabledCleanupMode, days: number): Promise<{
+  ok: boolean;
+  deleted: Array<{ id: number; username: string }>;
+  errors: Array<{ id: number; username?: string; detail: string }>;
+}> {
+  return request("/api/reseller/users/disabled-cleanup/execute", {
+    method: "POST",
+    body: JSON.stringify({ mode, days }),
+  });
+}
