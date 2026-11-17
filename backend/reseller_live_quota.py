@@ -33,6 +33,15 @@ POLL_SECONDS = max(
     int(float(env_string("POLL_SECONDS", "10") or "10")),
 )
 
+# x-ui refreshes ``client_traffics.last_online`` in batches. A window shorter
+# than that batch interval makes active users flicker offline between writes.
+# This only changes how a read-only timestamp is interpreted; it does not add
+# polling or any work to x-ui.
+ONLINE_RECENT_SECONDS = max(
+    30,
+    int(float(env_string("ONLINE_RECENT_SECONDS", "90") or "90")),
+)
+
 LIVE_PROBE_ENABLED = env_bool("ENABLE_LIVE_PROBE", False)
 
 UUID_RE = re.compile(
@@ -44,8 +53,51 @@ UUID_RE = re.compile(
 )
 
 _SYNC_LOCK = threading.Lock()
+_RECONCILE_LOCK = threading.Lock()
+_CLIENT_LOCKS_GUARD = threading.Lock()
+_CLIENT_LOCKS: dict[int, threading.Lock] = {}
 _LAST_SYNC_AT = 0.0
 _BG_TASK: asyncio.Task | None = None
+
+
+def _client_sync_lock(client_id: int) -> threading.Lock:
+    """Return the stable lock used to serialize one client's ledger updates.
+
+    A full synchronization may take minutes on large installations. Keeping
+    one global lock for that entire pass made renew/reset/delete requests wait
+    behind every other client and eventually fail. Per-client locks preserve
+    the cumulative-ledger invariant without coupling unrelated users.
+    """
+    key = int(client_id)
+    with _CLIENT_LOCKS_GUARD:
+        lock = _CLIENT_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _CLIENT_LOCKS[key] = lock
+        return lock
+
+
+def _reconcile_quotas_serialized(
+    xui: XUIClient,
+    *,
+    wait: bool,
+) -> dict:
+    """Run quota enforcement once, or reuse the pass already in progress."""
+    acquired = (
+        _RECONCILE_LOCK.acquire(timeout=10)
+        if wait
+        else _RECONCILE_LOCK.acquire(blocking=False)
+    )
+    if not acquired:
+        return {
+            "ok": True,
+            "skipped": True,
+            "reason": "quota_reconcile_in_progress",
+        }
+    try:
+        return reconcile_quotas(xui)
+    finally:
+        _RECONCILE_LOCK.release()
 
 
 def now_text() -> str:
@@ -2242,11 +2294,12 @@ def _direct_client_state(
 
 def sync_client_for_mutation(client_id: int) -> dict:
     """Persist one user's latest traffic before an update/reset/delete."""
-    acquired = _SYNC_LOCK.acquire(timeout=30)
+    client_lock = _client_sync_lock(client_id)
+    acquired = client_lock.acquire(timeout=15)
     if not acquired:
         return {
             "ok": False,
-            "error": "traffic_sync_busy",
+            "error": "client_traffic_sync_busy",
         }
 
     try:
@@ -2272,10 +2325,58 @@ def sync_client_for_mutation(client_id: int) -> dict:
 
         local = dict(row)
         xui = XUIClient()
-        state = _direct_client_state(
-            xui,
-            local,
+
+        # Prefer the colocated read-only SQLite snapshot. Calling x-ui's HTTP
+        # client endpoint before every renewal amplified load exactly when
+        # x-ui was already busy syncing remote nodes. Fall back to HTTP only
+        # when the local database is unavailable or lacks this client.
+        sqlite_result = _step7b_sqlite_snapshot(
+            [str(local.get("email") or "")],
         )
+        state = None
+        if sqlite_result is not None:
+            snapshot, online, _errors = sqlite_result
+            email = str(local.get("email") or "").strip()
+            entry = snapshot.get(email)
+            if entry is None:
+                folded = email.casefold()
+                entry = next(
+                    (
+                        candidate
+                        for candidate_email, candidate in snapshot.items()
+                        if candidate_email.casefold() == folded
+                    ),
+                    None,
+                )
+            if entry is not None:
+                total_limit = to_int(entry.get("total_limit_bytes"), 0)
+                if total_limit <= 0:
+                    total_limit = to_int(local.get("total_limit_bytes"), 0)
+                expiry_ms = to_int(entry.get("expiry_ms"), 0)
+                if expiry_ms == 0:
+                    expiry_ms = to_int(local.get("expire_at_ms"), 0)
+                state = {
+                    "ok": True,
+                    "panel": entry.get("panel") or {},
+                    "email": email,
+                    "online": email in online or bool(entry.get("online_hint")),
+                    "enabled": bool(
+                        entry.get("enabled")
+                        if entry.get("enabled") is not None
+                        else local.get("enabled", 1)
+                    ),
+                    "panel_up_bytes": max(0, to_int(entry.get("panel_up_bytes"), 0)),
+                    "panel_down_bytes": max(0, to_int(entry.get("panel_down_bytes"), 0)),
+                    "panel_used_bytes": max(0, to_int(entry.get("panel_used_bytes"), 0)),
+                    "total_limit_bytes": max(0, total_limit),
+                    "expiry_ms": expiry_ms,
+                }
+
+        if state is None:
+            state = _direct_client_state(
+                xui,
+                local,
+            )
         result = sync_one_client(
             xui,
             local,
@@ -2289,7 +2390,13 @@ def sync_client_for_mutation(client_id: int) -> dict:
                 "error": "client_traffic_not_verified",
             }
 
-        quota_result = reconcile_quotas(xui)
+        # If another global reconciliation is already running it will observe
+        # the freshly committed ledger state. The mutation need not wait for
+        # that installation-wide pass to finish.
+        quota_result = _reconcile_quotas_serialized(
+            xui,
+            wait=False,
+        )
 
         return {
             "ok": True,
@@ -2304,7 +2411,7 @@ def sync_client_for_mutation(client_id: int) -> dict:
         }
 
     finally:
-        _SYNC_LOCK.release()
+        client_lock.release()
 
 
 def sync_all(
@@ -2359,12 +2466,18 @@ def sync_all(
         failed_client_ids: list[int] = []
 
         for row in rows:
+            client_lock = _client_sync_lock(
+                to_int(row.get("id"), 0)
+            )
             try:
-                result = sync_one_client(
-                    xui,
-                    row,
-                    online_set,
-                )
+                # Serialize only this ledger row. A renewal for another user
+                # no longer waits for the complete synchronization pass.
+                with client_lock:
+                    result = sync_one_client(
+                        xui,
+                        row,
+                        online_set,
+                    )
 
                 if result:
                     synced.append(result)
@@ -2374,8 +2487,9 @@ def sync_all(
                 failed_client_ids.append(to_int(row.get("id"), 0))
                 continue
 
-        quota_result = reconcile_quotas(
-            xui
+        quota_result = _reconcile_quotas_serialized(
+            xui,
+            wait=True,
         )
 
         _LAST_SYNC_AT = time.time()
@@ -2627,15 +2741,32 @@ def _step7b_sqlite_snapshot(known_emails: list[str]):
             }
             if not required.issubset(columns):
                 return None
-            rows = con.execute(
-                """
-                SELECT
-                    email, inbound_id, enable, up, down,
-                    expiry_time, total, last_online
-                FROM client_traffics
-                WHERE email IS NOT NULL AND email!=''
-                """
-            ).fetchall()
+            # Mutation checks normally request one email. Restrict that query
+            # so a renewal does not scan/materialize every x-ui client row.
+            if len(canonical) <= 32:
+                placeholders = ",".join("?" for _ in canonical)
+                rows = con.execute(
+                    f"""
+                    SELECT
+                        email, inbound_id, enable, up, down,
+                        expiry_time, total, last_online
+                    FROM client_traffics
+                    WHERE email IS NOT NULL
+                      AND email!=''
+                      AND lower(email) IN ({placeholders})
+                    """,
+                    tuple(canonical),
+                ).fetchall()
+            else:
+                rows = con.execute(
+                    """
+                    SELECT
+                        email, inbound_id, enable, up, down,
+                        expiry_time, total, last_online
+                    FROM client_traffics
+                    WHERE email IS NOT NULL AND email!=''
+                    """
+                ).fetchall()
         finally:
             con.close()
     except (OSError, sqlite3.Error):
@@ -2644,7 +2775,10 @@ def _step7b_sqlite_snapshot(known_emails: list[str]):
     snapshot: dict[str, dict] = {}
     online: set[str] = set()
     current_ms = now_ms()
-    recent_ms = max(15000, POLL_SECONDS * 2500)
+    recent_ms = max(
+        ONLINE_RECENT_SECONDS * 1000,
+        POLL_SECONDS * 2500,
+    )
 
     for row in rows:
         original = canonical.get(_step7b_email(row["email"]).casefold())
@@ -2845,7 +2979,10 @@ def _step7b_build_snapshot(xui: XUIClient, known_emails: list[str]):
         return snapshot[original]
 
     current_ms = int(time.time() * 1000)
-    recent_ms = max(15000, POLL_SECONDS * 2500)
+    recent_ms = max(
+        ONLINE_RECENT_SECONDS * 1000,
+        POLL_SECONDS * 2500,
+    )
 
     for inbound in rows:
         if not isinstance(inbound, dict):

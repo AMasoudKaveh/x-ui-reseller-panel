@@ -6,6 +6,7 @@ import json
 import re
 import secrets
 import sqlite3
+import threading
 from datetime import datetime
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
 
@@ -29,6 +30,19 @@ from backend.subscription_upstream import resolve_upstream_subscription_url
 router = APIRouter(prefix="/api/reseller", tags=["Reseller User Actions"])
 
 UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
+
+# Keep a busy x-ui from receiving a burst of expensive client mutations.
+# Two slots preserve normal responsiveness while bounding load. This gate is
+# process-local and does not create a worker, queue, or polling loop.
+XUI_MUTATION_CONCURRENCY = max(
+    1,
+    min(8, int(float(env_string("XUI_MUTATION_CONCURRENCY", "2") or "2"))),
+)
+XUI_MUTATION_WAIT_SECONDS = max(
+    5,
+    int(float(env_string("XUI_MUTATION_WAIT_SECONDS", "45") or "45")),
+)
+_XUI_MUTATION_GATE = threading.BoundedSemaphore(XUI_MUTATION_CONCURRENCY)
 
 
 class ModifyUserBody(BaseModel):
@@ -221,7 +235,7 @@ def validate_inbounds(rep_id: int, requested: list[int], xui: XUIClient) -> list
     return ids
 
 
-def safe_update(
+def _safe_update_unlocked(
     *, xui: XUIClient, local: dict, rep_id: int, inbound_ids=None,
     total_bytes=None, expiry_ms=None, limit_ip=None, enabled=None,
     comment=None, telegram_id=None, sub_override=None,
@@ -296,6 +310,36 @@ def safe_update(
         except Exception as e:
             errors.append(f"{name}: {e}")
     raise XUIError("x-ui update failed after all API variants: " + " | ".join(errors[-4:]))
+
+
+def safe_update(
+    *, xui: XUIClient, local: dict, rep_id: int, inbound_ids=None,
+    total_bytes=None, expiry_ms=None, limit_ip=None, enabled=None,
+    comment=None, telegram_id=None, sub_override=None,
+) -> dict:
+    acquired = _XUI_MUTATION_GATE.acquire(
+        timeout=XUI_MUTATION_WAIT_SECONDS,
+    )
+    if not acquired:
+        raise XUIError(
+            "x-ui is busy processing other client changes; retry shortly."
+        )
+    try:
+        return _safe_update_unlocked(
+            xui=xui,
+            local=local,
+            rep_id=rep_id,
+            inbound_ids=inbound_ids,
+            total_bytes=total_bytes,
+            expiry_ms=expiry_ms,
+            limit_ip=limit_ip,
+            enabled=enabled,
+            comment=comment,
+            telegram_id=telegram_id,
+            sub_override=sub_override,
+        )
+    finally:
+        _XUI_MUTATION_GATE.release()
 
 
 def public_config_link(link: str, email: str, uid: str) -> str:
