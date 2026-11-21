@@ -273,7 +273,7 @@ export default function RepresentativesPage({scope="admin"}:{scope?:"admin"|"res
               <div className="rp-inbounds"><Server size={15}/><strong>{rep.inbound_ids.length}</strong><span>assigned</span></div>
               <div className="up-actions" onClick={e=>e.stopPropagation()}>
                 <button type="button" title="Details" onClick={()=>setDetails(rep)}><Eye size={18}/></button>
-                <div className="ua-action-wrap"><button type="button" onClick={()=>setMenuFor(menuFor===rep.id?null:rep.id)}><MoreVertical size={18}/></button>
+                <div className="ua-action-wrap"><button type="button" aria-expanded={menuFor===rep.id} aria-haspopup="menu" onClick={()=>setMenuFor(menuFor===rep.id?null:rep.id)}><MoreVertical size={18}/></button>
                   {menuFor===rep.id&&<div className="ua-more-menu rp-more-menu">
                     <button type="button" onClick={()=>{setModify(rep);setMenuFor(null)}}><PencilLine size={18}/><span>Modify</span></button>
                     <button type="button" onClick={()=>{setMenuFor(null);void resetUsage(rep)}}><RefreshCcw size={18}/><span>Reset Usage</span></button>

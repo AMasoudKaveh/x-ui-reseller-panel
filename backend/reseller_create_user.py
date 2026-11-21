@@ -528,7 +528,7 @@ def create_reseller_user(
 
             FROM clients
 
-            WHERE email = ?
+            WHERE lower(email) = lower(?)
 
               AND COALESCE(
                     status,

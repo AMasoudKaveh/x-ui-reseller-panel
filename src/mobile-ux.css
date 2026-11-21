@@ -938,6 +938,45 @@
   }
 }
 
+/* Admin client/representative menus are declared after users.css and used to
+   force an absolute desktop popover. On phones they must use the same boxed
+   viewport action sheet as reseller users, otherwise rows show through and
+   the menu is clipped or split into apparently unrelated panels. */
+@media (max-width: 680px) {
+  .ac-row .ua-more-menu,
+  .ac-table-card .ua-more-menu,
+  .rp-row .ua-more-menu,
+  .rp-table-card .ua-more-menu {
+    position: fixed !important;
+    inset: auto 12px calc(78px + env(safe-area-inset-bottom)) 12px !important;
+    width: auto !important;
+    max-width: 520px !important;
+    max-height: min(70dvh, 520px) !important;
+    margin: 0 auto !important;
+    padding: 8px !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    z-index: 900000 !important;
+    border: 1px solid var(--border-strong, var(--border)) !important;
+    border-radius: 16px !important;
+    background: var(--surface-raised, #191b1f) !important;
+    box-shadow:
+      0 0 0 100vmax rgba(0, 0, 0, .43),
+      0 22px 70px rgba(0, 0, 0, .58) !important;
+    isolation: isolate !important;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .ac-row .ua-more-menu > button,
+  .rp-row .ua-more-menu > button {
+    min-height: 48px !important;
+    padding-inline: 13px !important;
+    border-radius: 9px !important;
+    background: transparent !important;
+  }
+}
+
 @media (max-width: 380px) {
   :root {
     --mobile-page-gutter: 10px;

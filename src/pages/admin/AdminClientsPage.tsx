@@ -262,7 +262,7 @@ export default function AdminClientsPage() {
               <button title="QR" onClick={()=>void withAccess(c,"qr")}><QrCode size={18}/></button>
               <button title="Modify" onClick={()=>setModify(c.id)}><PencilLine size={18}/></button>
               <div className="ua-action-wrap">
-                <button title="More" onClick={()=>setMenuFor(menuFor===c.id?null:c.id)}><MoreVertical size={18}/></button>
+                <button title="More" aria-expanded={menuFor===c.id} aria-haspopup="menu" onClick={()=>setMenuFor(menuFor===c.id?null:c.id)}><MoreVertical size={18}/></button>
                 {menuFor===c.id&&<div className="ua-more-menu rp-more-menu">
                   <button type="button" onClick={()=>{setModify(c.id);setMenuFor(null)}}><PencilLine size={18}/><span>Modify</span></button>
                   <button type="button" onClick={()=>void revoke(c)}><RotateCcw size={18}/><span>Revoke Subscription</span></button>

@@ -1692,6 +1692,8 @@ const [
                                   <button
                                     type="button"
                                     title="More"
+                                    aria-expanded={moreMenuFor === userId}
+                                    aria-haspopup="menu"
                                     onClick={() => {
                                       setMoreMenuFor(moreMenuFor === userId ? null : userId);
                                       setCopyMenuFor(null);

@@ -33,6 +33,7 @@ from backend.reseller_user_actions import (
     now_text,
     panel_get,
     parse_ids,
+    require_verified_client_sync,
     safe_sub,
     safe_update,
     safe_uuid,
@@ -589,12 +590,7 @@ def modify_admin_client(
     xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
 ):
     _require_admin(xui_session)
-    from backend.reseller_live_quota import sync_all
-    sync_result = sync_all(True)
-    if not sync_result.get("ok") or sync_result.get("skipped"):
-        raise HTTPException(status_code=502, detail="Verified traffic sync failed; client was not modified")
-    if int(client_id) not in set(sync_result.get("verified_client_ids") or []):
-        raise HTTPException(status_code=502, detail="This client's current x-ui traffic could not be verified; client was not modified")
+    require_verified_client_sync(client_id, "modified")
     local = _admin_user(client_id)
     rep_id = to_int(local.get("seller_rep_id"), 0)
     ids = _validate_admin_inbounds(local, body.inbound_ids, allow_current=True)
@@ -678,6 +674,7 @@ def toggle_admin_client(
     _sync_if_due()
     local = _admin_user(client_id)
     rep_id = to_int(local.get("seller_rep_id"), 0)
+    require_verified_client_sync(client_id, "enabled or disabled")
 
     if body.enabled:
         ok, reason = _can_enable(local)
@@ -713,12 +710,7 @@ def reset_admin_client_usage(
     xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
 ):
     _require_admin(xui_session)
-    from backend.reseller_live_quota import sync_all
-    sync_result = sync_all(True)
-    if not sync_result.get("ok") or sync_result.get("skipped"):
-        raise HTTPException(status_code=502, detail="Verified traffic sync failed; usage was not reset")
-    if int(client_id) not in set(sync_result.get("verified_client_ids") or []):
-        raise HTTPException(status_code=502, detail="This client's current x-ui traffic could not be verified; usage was not reset")
+    require_verified_client_sync(client_id, "reset")
     local = _admin_user(client_id)
     email = str(local.get("email") or "")
     xui = XUIClient()
@@ -773,6 +765,7 @@ def revoke_admin_client_subscription(
     _require_admin(xui_session)
     local = _admin_user(client_id)
     rep_id = to_int(local.get("seller_rep_id"), 0)
+    require_verified_client_sync(client_id, "updated")
     new_sub = secrets.token_urlsafe(10).replace("-", "").replace("_", "")[:14]
     try:
         result = safe_update(
@@ -800,12 +793,7 @@ def remove_admin_client(
     xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
 ):
     _require_admin(xui_session)
-    from backend.reseller_live_quota import sync_all
-    sync_result = sync_all(True)
-    if not sync_result.get("ok") or sync_result.get("skipped"):
-        raise HTTPException(status_code=502, detail="Verified traffic sync failed; client was not deleted")
-    if int(client_id) not in set(sync_result.get("verified_client_ids") or []):
-        raise HTTPException(status_code=502, detail="This client's current x-ui traffic could not be verified; client was not deleted")
+    require_verified_client_sync(client_id, "deleted")
     local = _admin_user(client_id)
     rep_id = to_int(local.get("seller_rep_id"), 0)
 

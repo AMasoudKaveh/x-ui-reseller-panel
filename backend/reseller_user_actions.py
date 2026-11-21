@@ -507,6 +507,19 @@ def ensure_deleted_usage_schema():
         con.commit()
 
 
+def require_verified_client_sync(client_id: int, action: str) -> dict:
+    from backend.reseller_live_quota import sync_client_for_mutation
+
+    result = sync_client_for_mutation(client_id)
+    if result.get("ok"):
+        return result
+    reason = str(result.get("error") or "traffic_not_verified")
+    raise HTTPException(
+        status_code=502,
+        detail=f"Verified traffic sync failed; user was not {action} ({reason})",
+    )
+
+
 @router.get("/users/{client_id}/details")
 def user_details(client_id: int, xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
     rep = get_reseller_from_session(xui_session)
@@ -553,10 +566,7 @@ def modify_user(client_id: int, body: ModifyUserBody, xui_session: str | None = 
     rep = get_reseller_from_session(xui_session)
     rep_id = int(rep["id"])
     local = owned_user(client_id, rep_id)
-    from backend.reseller_live_quota import sync_client_for_mutation
-    sync_result = sync_client_for_mutation(client_id)
-    if not sync_result.get("ok"):
-        raise HTTPException(502, "Verified traffic sync failed; user was not modified")
+    require_verified_client_sync(client_id, "modified")
     xui = XUIClient()
     ids = validate_inbounds(rep_id, body.inbound_ids, xui)
     tg = str(body.telegram_user_id or "").strip()
@@ -604,6 +614,7 @@ def toggle_user(client_id: int, body: ToggleBody, xui_session: str | None = Cook
     rep = get_reseller_from_session(xui_session)
     rep_id = int(rep["id"])
     local = owned_user(client_id, rep_id)
+    require_verified_client_sync(client_id, "enabled or disabled")
     try:
         result = safe_update(xui=XUIClient(), local=local, rep_id=rep_id, enabled=body.enabled)
     except Exception as e:
@@ -621,10 +632,7 @@ def reset_usage(client_id: int, xui_session: str | None = Cookie(default=None, a
     rep = get_reseller_from_session(xui_session)
     rep_id = int(rep["id"])
     local = owned_user(client_id, rep_id)
-    from backend.reseller_live_quota import sync_client_for_mutation
-    sync_result = sync_client_for_mutation(client_id)
-    if not sync_result.get("ok"):
-        raise HTTPException(502, "Verified traffic sync failed; usage was not reset")
+    require_verified_client_sync(client_id, "reset")
     email = str(local.get("email") or "")
     xui = XUIClient()
     errors = []
@@ -671,6 +679,7 @@ def revoke_subscription(client_id: int, xui_session: str | None = Cookie(default
     rep = get_reseller_from_session(xui_session)
     rep_id = int(rep["id"])
     local = owned_user(client_id, rep_id)
+    require_verified_client_sync(client_id, "updated")
     new_sub = secrets.token_urlsafe(10).replace("-", "").replace("_", "")[:14]
     xui = XUIClient()
     try:
@@ -746,10 +755,7 @@ def remove_user(client_id: int, xui_session: str | None = Cookie(default=None, a
     rep = get_reseller_from_session(xui_session)
     rep_id = int(rep["id"])
     local = owned_user(client_id, rep_id)
-    from backend.reseller_live_quota import sync_client_for_mutation
-    sync_result = sync_client_for_mutation(client_id)
-    if not sync_result.get("ok"):
-        raise HTTPException(502, "Verified traffic sync failed; user was not deleted")
+    require_verified_client_sync(client_id, "deleted")
     try:
         panel_result = delete_from_panel(XUIClient(), local)
     except Exception as e:

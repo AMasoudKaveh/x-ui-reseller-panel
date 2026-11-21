@@ -103,7 +103,7 @@ def create_child(body: RepresentativeCreateBody, xui_session: str | None = Cooki
     status = normalize_status(body.status)
     inbound_ids = _validate_child_inbounds(actor, body.inbound_ids)
     with connect_db() as con:
-        if con.execute("SELECT 1 FROM representatives WHERE username=?", (username,)).fetchone():
+        if con.execute("SELECT 1 FROM representatives WHERE lower(username)=lower(?)", (username,)).fetchone():
             raise HTTPException(status_code=409, detail="Username already exists")
         cur = con.execute(
             """INSERT INTO representatives(
@@ -130,7 +130,7 @@ def update_child(child_id: int, body: RepresentativeUpdateBody, xui_session: str
     inbound_ids = _validate_child_inbounds(actor, body.inbound_ids)
     with connect_db() as con:
         current = _owned_child(con, int(actor["id"]), child_id)
-        if con.execute("SELECT 1 FROM representatives WHERE username=? AND id<>?", (username, child_id)).fetchone():
+        if con.execute("SELECT 1 FROM representatives WHERE lower(username)=lower(?) AND id<>?", (username, child_id)).fetchone():
             raise HTTPException(status_code=409, detail="Username already exists")
         used = int(current.get("used_bytes") or 0)
         quota = max(0, int(body.quota_bytes or 0))
@@ -176,10 +176,6 @@ def set_child_status(child_id: int, body: RepresentativeStatusBody, xui_session:
 @router.post("/{child_id}/reset-usage")
 def reset_child_usage(child_id: int, xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
     actor = _actor(xui_session)
-    from backend.reseller_live_quota import sync_all
-    result = sync_all(True)
-    if not result.get("ok") or result.get("skipped"):
-        raise HTTPException(status_code=502, detail="A verified x-ui sync is required before resetting usage")
     with connect_db() as con:
         _owned_child(con, int(actor["id"]), child_id)
         client_ids = {int(row["id"]) for row in con.execute(
@@ -188,8 +184,16 @@ def reset_child_usage(child_id: int, xui_session: str | None = Cookie(default=No
                SELECT c.id FROM clients c JOIN tree t ON c.seller_rep_id=t.id WHERE COALESCE(c.status,'')!='deleted'""",
             (child_id,),
         ).fetchall()}
-        if client_ids - set(result.get("verified_client_ids") or []):
-            raise HTTPException(status_code=502, detail="Some subtree client traffic could not be verified; usage was not reset")
+
+    from backend.reseller_live_quota import sync_clients_for_mutation
+    result = sync_clients_for_mutation(client_ids)
+    if not result.get("ok"):
+        raise HTTPException(status_code=502, detail={
+            "message": "Some subtree client traffic could not be verified; usage was not reset",
+            "failed": result.get("failed") or [],
+        })
+
+    with connect_db() as con:
         from backend.reseller_live_quota import representative_usage_tree
         _, raw_subtree, _ = representative_usage_tree(con)
         con.execute(
@@ -207,12 +211,22 @@ def reset_child_usage(child_id: int, xui_session: str | None = Cookie(default=No
 @router.delete("/{child_id}")
 def delete_child(child_id: int, xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
     actor = _actor(xui_session)
-    from backend.reseller_live_quota import sync_all
-    result = sync_all(True)
-    if not result.get("ok") or result.get("skipped"):
-        raise HTTPException(status_code=502, detail="A verified x-ui sync is required before deletion")
     with connect_db() as con:
         _owned_child(con, int(actor["id"]), child_id)
+        client_ids = {int(row["id"]) for row in con.execute(
+            """WITH RECURSIVE tree(id) AS (SELECT id FROM representatives WHERE id=? UNION ALL
+               SELECT r.id FROM representatives r JOIN tree t ON r.parent_rep_id=t.id)
+               SELECT c.id FROM clients c JOIN tree t ON c.seller_rep_id=t.id
+               WHERE COALESCE(c.status,'')!='deleted'""",
+            (child_id,),
+        ).fetchall()}
+    from backend.reseller_live_quota import sync_clients_for_mutation
+    result = sync_clients_for_mutation(client_ids)
+    if not result.get("ok"):
+        raise HTTPException(status_code=502, detail={
+            "message": "Some subtree client traffic could not be verified; representative was not deleted",
+            "failed": result.get("failed") or [],
+        })
     response = delete_representative_subtree(
         child_id,
         {int(value) for value in result.get("verified_client_ids") or []},

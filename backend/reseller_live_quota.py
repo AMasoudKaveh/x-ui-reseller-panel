@@ -1078,11 +1078,17 @@ def set_panel_enabled(
     if not email:
         return False
 
-    raw = xui.request(
-        "GET",
-        "/panel/api/clients/get/"
-        + quote(email, safe=""),
-    )
+    try:
+        raw = xui.request(
+            "GET",
+            "/panel/api/clients/get/"
+            + quote(email, safe=""),
+        )
+    except Exception:
+        # A stale local row must not abort quota reconciliation for every
+        # representative. Returning False keeps the local lifecycle intact
+        # and lets a later pass retry after the row is repaired/removed.
+        return False
 
     panel = extract_client(raw)
 
@@ -2292,7 +2298,11 @@ def _direct_client_state(
     }
 
 
-def sync_client_for_mutation(client_id: int) -> dict:
+def sync_client_for_mutation(
+    client_id: int,
+    *,
+    run_reconcile: bool = True,
+) -> dict:
     """Persist one user's latest traffic before an update/reset/delete."""
     client_lock = _client_sync_lock(client_id)
     acquired = client_lock.acquire(timeout=15)
@@ -2317,10 +2327,31 @@ def sync_client_for_mutation(client_id: int) -> dict:
                 (int(client_id),),
             ).fetchone()
 
+            # x-ui treats usernames case-insensitively in several endpoints.
+            # Never attribute another same-folded username's counters to this
+            # client; require an operator to resolve the legacy duplicate.
+            duplicates = con.execute(
+                """
+                SELECT id,email
+                FROM clients
+                WHERE lower(email)=lower(?)
+                  AND COALESCE(status,'')!='deleted'
+                ORDER BY id
+                """,
+                (str(row["email"] or "") if row else "",),
+            ).fetchall() if row else []
+
         if not row:
             return {
                 "ok": False,
                 "error": "client_not_found",
+            }
+
+        if len(duplicates) > 1:
+            return {
+                "ok": False,
+                "error": "duplicate_case_insensitive_username",
+                "conflicting_client_ids": [int(item["id"]) for item in duplicates],
             }
 
         local = dict(row)
@@ -2393,10 +2424,22 @@ def sync_client_for_mutation(client_id: int) -> dict:
         # If another global reconciliation is already running it will observe
         # the freshly committed ledger state. The mutation need not wait for
         # that installation-wide pass to finish.
-        quota_result = _reconcile_quotas_serialized(
-            xui,
-            wait=False,
-        )
+        quota_result = {"ok": True, "skipped": "not_requested"}
+        if run_reconcile:
+            try:
+                quota_result = _reconcile_quotas_serialized(
+                    xui,
+                    wait=False,
+                )
+            except Exception as exc:
+                # Traffic was already verified and committed above. A stale
+                # unrelated user encountered during quota reconciliation must
+                # not turn this safe mutation into a false sync failure.
+                quota_result = {
+                    "ok": False,
+                    "warning": "quota_reconcile_failed",
+                    "error": str(exc),
+                }
 
         return {
             "ok": True,
@@ -2412,6 +2455,41 @@ def sync_client_for_mutation(client_id: int) -> dict:
 
     finally:
         client_lock.release()
+
+
+def sync_clients_for_mutation(client_ids) -> dict:
+    """Verify only the clients affected by a subtree/bulk mutation."""
+    requested = sorted({to_int(value, 0) for value in client_ids if to_int(value, 0) > 0})
+    verified: list[int] = []
+    failures: list[dict] = []
+
+    for client_id in requested:
+        result = sync_client_for_mutation(client_id, run_reconcile=False)
+        if result.get("ok"):
+            verified.append(client_id)
+        else:
+            failures.append({
+                "client_id": client_id,
+                "error": result.get("error") or "traffic_not_verified",
+            })
+
+    quota_result = {"ok": True, "skipped": "no_verified_clients"}
+    if verified:
+        try:
+            quota_result = _reconcile_quotas_serialized(XUIClient(), wait=False)
+        except Exception as exc:
+            quota_result = {
+                "ok": False,
+                "warning": "quota_reconcile_failed",
+                "error": str(exc),
+            }
+
+    return {
+        "ok": not failures,
+        "verified_client_ids": verified,
+        "failed": failures,
+        "quota": quota_result,
+    }
 
 
 def sync_all(

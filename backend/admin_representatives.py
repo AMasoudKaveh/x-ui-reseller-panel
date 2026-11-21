@@ -1246,7 +1246,7 @@ def create_representative(
 
     with connect_db() as con:
         duplicate = con.execute(
-            "SELECT id FROM representatives WHERE username=?",
+            "SELECT id FROM representatives WHERE lower(username)=lower(?)",
             (username,),
         ).fetchone()
         if duplicate:
@@ -1315,7 +1315,7 @@ def update_representative(
             raise HTTPException(status_code=404, detail="Representative not found")
 
         duplicate = con.execute(
-            "SELECT id FROM representatives WHERE username=? AND id<>?",
+            "SELECT id FROM representatives WHERE lower(username)=lower(?) AND id<>?",
             (username, rep_id),
         ).fetchone()
         if duplicate:
@@ -1477,11 +1477,6 @@ def reset_representative_usage(
 ):
     require_admin(xui_session)
     ensure_admin_schema()
-    from backend.reseller_live_quota import sync_all
-    sync_result = sync_all(True)
-    if not sync_result.get("ok") or sync_result.get("skipped"):
-        raise HTTPException(status_code=502, detail="Verified traffic sync failed; usage was not reset")
-
     with connect_db() as con:
         get_rep(con, rep_id)
         client_ids = {int(row["id"]) for row in con.execute(
@@ -1490,8 +1485,16 @@ def reset_representative_usage(
                SELECT c.id FROM clients c JOIN tree t ON c.seller_rep_id=t.id WHERE COALESCE(c.status,'')!='deleted'""",
             (rep_id,),
         ).fetchall()}
-        if client_ids - set(sync_result.get("verified_client_ids") or []):
-            raise HTTPException(status_code=502, detail="Some subtree client traffic could not be verified; usage was not reset")
+
+    from backend.reseller_live_quota import sync_clients_for_mutation
+    sync_result = sync_clients_for_mutation(client_ids)
+    if not sync_result.get("ok"):
+        raise HTTPException(status_code=502, detail={
+            "message": "Some subtree client traffic could not be verified; usage was not reset",
+            "failed": sync_result.get("failed") or [],
+        })
+
+    with connect_db() as con:
         from backend.reseller_live_quota import representative_usage_tree
         _, raw_subtree, _ = representative_usage_tree(con)
         # Reset only this representative's quota period. The immutable traffic
@@ -1536,10 +1539,22 @@ def delete_representative(
 ):
     require_admin(xui_session)
     ensure_admin_schema()
-    from backend.reseller_live_quota import sync_all
-    sync_result = sync_all(True)
-    if not sync_result.get("ok") or sync_result.get("skipped"):
-        raise HTTPException(status_code=502, detail="Verified traffic sync failed; representative was not deleted")
+    with connect_db() as con:
+        get_rep(con, rep_id)
+        client_ids = {int(row["id"]) for row in con.execute(
+            """WITH RECURSIVE tree(id) AS (SELECT id FROM representatives WHERE id=? UNION ALL
+               SELECT r.id FROM representatives r JOIN tree t ON r.parent_rep_id=t.id)
+               SELECT c.id FROM clients c JOIN tree t ON c.seller_rep_id=t.id
+               WHERE COALESCE(c.status,'')!='deleted'""",
+            (rep_id,),
+        ).fetchall()}
+    from backend.reseller_live_quota import sync_clients_for_mutation
+    sync_result = sync_clients_for_mutation(client_ids)
+    if not sync_result.get("ok"):
+        raise HTTPException(status_code=502, detail={
+            "message": "Some subtree client traffic could not be verified; representative was not deleted",
+            "failed": sync_result.get("failed") or [],
+        })
     result = delete_representative_subtree(
         rep_id,
         {int(value) for value in sync_result.get("verified_client_ids") or []},
