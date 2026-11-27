@@ -1144,6 +1144,7 @@ def admin_api_me(
         "ok": True,
 
         "data": {
+            "capabilities": {"representative_user_limits": True},
             "id":
                 principal.admin_id,
 
@@ -1473,7 +1474,8 @@ def admin_api_patch_representative(
                     quota_bytes,
 
                 status=(
-                    str(
+                    "Active" if body.status is None and current.get("expired") and current.get("raw_status") == "active"
+                    else str(
                         current.get(
                             "status",
                             "Active",
