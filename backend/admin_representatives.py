@@ -36,6 +36,8 @@ class RepresentativeCreateBody(BaseModel):
     username: str
     password: str
     quota_bytes: int = Field(default=0, ge=0)
+    client_limit: int = Field(default=0, ge=0, le=1_000_000)
+    rep_expires_at: int = Field(default=0, ge=0, le=253402300799)
     status: str = "Active"
     inbound_ids: list[int] = Field(default_factory=list)
 
@@ -44,6 +46,8 @@ class RepresentativeUpdateBody(BaseModel):
     username: str
     password: str = ""
     quota_bytes: int = Field(default=0, ge=0)
+    client_limit: int | None = Field(default=None, ge=0, le=1_000_000)
+    rep_expires_at: int | None = Field(default=None, ge=0, le=253402300799)
     status: str = "Active"
     inbound_ids: list[int] = Field(default_factory=list)
 
@@ -114,6 +118,8 @@ def ensure_admin_schema() -> None:
         ensure_column(con, "representatives", "ancestor_locked", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(con, "representatives", "ancestor_locked_by", "INTEGER")
         ensure_column(con, "representatives", "usage_baseline_bytes", "INTEGER NOT NULL DEFAULT 0")
+        ensure_column(con, "representatives", "client_limit", "INTEGER NOT NULL DEFAULT 0")
+        ensure_column(con, "representatives", "rep_expires_at", "INTEGER NOT NULL DEFAULT 0")
         con.execute(
             "CREATE INDEX IF NOT EXISTS idx_representatives_parent_rep_id ON representatives(parent_rep_id)"
         )
@@ -527,7 +533,10 @@ def rep_payload(con: sqlite3.Connection, row: sqlite3.Row | dict[str, Any]) -> d
     raw_status = str(rep.get("status") or "active").lower()
     quota_locked = bool(int(rep.get("quota_locked") or 0))
     ancestor_locked = bool(int(rep.get("ancestor_locked") or 0))
-    visible_status = "Active" if raw_status == "active" and not quota_locked and not ancestor_locked else "Suspended"
+    from backend.representative_limits import client_count, expired
+    is_expired = expired(con, rep_id)
+    client_limit = int(rep.get("client_limit") or 0)
+    visible_status = "Active" if raw_status == "active" and not quota_locked and not ancestor_locked and not is_expired else "Suspended"
     child_row = con.execute(
         "SELECT COUNT(*) AS total FROM representatives WHERE parent_rep_id=? AND COALESCE(deleted_at,'')=''",
         (rep_id,),
@@ -560,6 +569,10 @@ def rep_payload(con: sqlite3.Connection, row: sqlite3.Row | dict[str, Any]) -> d
         "id": rep_id,
         "username": str(rep.get("username") or ""),
         "quota_bytes": max(0, int(rep.get("quota_bytes") or 0)),
+        "client_limit": client_limit,
+        "client_limit_used": client_count(con, rep_id) if client_limit else total_users,
+        "rep_expires_at": int(rep.get("rep_expires_at") or 0),
+        "expired": is_expired,
         "used_bytes": max(0, int(rep.get("used_bytes") or 0)),
         "direct_used_bytes": max(0, int(rep.get("direct_used_bytes") or 0)),
         "descendant_used_bytes": max(0, int(rep.get("descendant_used_bytes") or 0)),
@@ -723,6 +736,9 @@ def restore_rep_clients(rep_id: int) -> dict[str, Any]:
 
     with connect_db() as con:
         rep = get_rep(con, rep_id)
+        from backend.representative_limits import expired
+        if expired(con, rep_id):
+            return {"restored": restored, "failures": failures, "skipped": "expired"}
         quota = int(rep.get("quota_bytes") or 0)
         used = int(rep.get("used_bytes") or 0)
         if int(rep.get("quota_locked") or 0) or (quota > 0 and used >= quota):
@@ -1264,9 +1280,11 @@ def create_representative(
                 total_users,
                 updated_at,
                 allowed_inbound_ids,
-                quota_locked
+                quota_locked,
+                client_limit,
+                rep_expires_at
             )
-            VALUES(?,?,?,?,?,0,0,?,?,0)
+            VALUES(?,?,?,?,?,0,0,?,?,0,?,?)
             """,
             (
                 username,
@@ -1276,6 +1294,8 @@ def create_representative(
                 quota_bytes,
                 now_text(),
                 json.dumps(inbound_ids),
+                body.client_limit,
+                body.rep_expires_at,
             ),
         )
         rep_id = int(cur.lastrowid)
@@ -1337,6 +1357,8 @@ def update_representative(
             status_to_store,
             json.dumps(inbound_ids),
             now_text(),
+            body.client_limit,
+            body.rep_expires_at,
         ]
         password_sql = ""
         if password:
@@ -1351,7 +1373,9 @@ def update_representative(
                 quota_bytes=?,
                 status=?,
                 allowed_inbound_ids=?,
-                updated_at=?
+                updated_at=?,
+                client_limit=COALESCE(?,client_limit),
+                rep_expires_at=COALESCE(?,rep_expires_at)
                 {password_sql}
             WHERE id=?
             """,

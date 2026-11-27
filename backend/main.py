@@ -427,6 +427,11 @@ def reseller_login(
         )
 
 
+    from backend.representative_limits import expired
+    with db() as con:
+        if expired(con, int(row["id"])):
+            raise HTTPException(403, "Representative account has expired")
+
     create_session(
         response=response,
         role="reseller",

@@ -127,13 +127,16 @@ class SubscriptionBrandTests(unittest.TestCase):
             self.assertEqual(admin_settings.public_subscription_override("subAlpha"), "")
 
     def test_nginx_listener_uses_the_admin_selected_port(self) -> None:
-        certificate = self.root / "fullchain.pem"
-        private_key = self.root / "privkey.pem"
-        certificate.write_text("certificate", encoding="utf-8")
-        private_key.write_text("private-key", encoding="utf-8")
-        rendered = subscription_proxy_config.render_nginx_config(
-            "sub.example.com", 18443, str(certificate), str(private_key)
-        )
+        # The Windows sandbox's default temp directory contains literal braces,
+        # which the Nginx configuration validator intentionally rejects.
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as cert_dir:
+            certificate = Path(cert_dir) / "fullchain.pem"
+            private_key = Path(cert_dir) / "privkey.pem"
+            certificate.write_text("certificate", encoding="utf-8")
+            private_key.write_text("private-key", encoding="utf-8")
+            rendered = subscription_proxy_config.render_nginx_config(
+                "sub.example.com", 18443, str(certificate), str(private_key)
+            )
         self.assertIn("listen 18443 ssl;", rendered)
         self.assertIn("server_name sub.example.com;", rendered)
         self.assertIn("location /sub/", rendered)

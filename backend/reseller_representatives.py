@@ -97,6 +97,8 @@ def child_inbounds(xui_session: str | None = Cookie(default=None, alias=SESSION_
 @router.post("")
 def create_child(body: RepresentativeCreateBody, xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
     actor = _actor(xui_session)
+    if body.client_limit or body.rep_expires_at:
+        raise HTTPException(403, "Only an admin can configure user limits or representative expiry")
     ensure_admin_schema()
     username = validate_username(body.username)
     password = validate_password(body.password, required=True)
@@ -123,6 +125,8 @@ def create_child(body: RepresentativeCreateBody, xui_session: str | None = Cooki
 @router.patch("/{child_id}")
 def update_child(child_id: int, body: RepresentativeUpdateBody, xui_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
     actor = _actor(xui_session)
+    if body.client_limit is not None or body.rep_expires_at is not None:
+        raise HTTPException(403, "Only an admin can configure user limits or representative expiry")
     ensure_admin_schema()
     username = validate_username(body.username)
     password = validate_password(body.password, required=False)

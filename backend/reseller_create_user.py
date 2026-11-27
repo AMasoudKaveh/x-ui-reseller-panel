@@ -492,6 +492,12 @@ def create_reseller_user(
     )
 
 
+    from backend.representative_limits import creation_slot
+    with creation_slot(reseller_id):
+        return _create_reseller_user(body, reseller, reseller_id)
+
+
+def _create_reseller_user(body: CreateUserBody, reseller, reseller_id: int):
     username = str(
         body.username
         or ""

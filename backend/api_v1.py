@@ -648,6 +648,10 @@ def require_api_key(
                 detail="Representative account is disabled by an upstream quota or suspension",
             )
 
+        from backend.representative_limits import expired
+        if expired(con, int(row["representative_id"])):
+            raise HTTPException(403, "Representative account has expired")
+
         try:
             raw_scopes = json.loads(
                 str(row["scopes"] or "[]")

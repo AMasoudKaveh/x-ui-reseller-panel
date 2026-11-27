@@ -255,6 +255,10 @@ def get_reseller_from_session(
             )
 
 
+        from backend.representative_limits import expired
+        if expired(con, int(reseller["id"])):
+            raise HTTPException(403, "Representative account has expired")
+
         return reseller
 
 

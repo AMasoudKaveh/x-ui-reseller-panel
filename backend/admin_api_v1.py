@@ -111,6 +111,8 @@ class CreateAdminApiKeyBody(BaseModel):
 
 class AdminRepresentativeCreateBody(BaseModel):
     username: str
+    client_limit: int = Field(default=0, ge=0, le=1_000_000)
+    rep_expires_at: int = Field(default=0, ge=0, le=253402300799)
 
     password: str
 
@@ -129,6 +131,8 @@ class AdminRepresentativeCreateBody(BaseModel):
 
 class AdminRepresentativePatchBody(BaseModel):
     username: str | None = None
+    client_limit: int | None = Field(default=None, ge=0, le=1_000_000)
+    rep_expires_at: int | None = Field(default=None, ge=0, le=253402300799)
 
     password: str | None = None
 
@@ -1337,6 +1341,8 @@ def admin_api_create_representative(
 ):
 
     payload = RepresentativeCreateBody(
+        client_limit=body.client_limit,
+        rep_expires_at=body.rep_expires_at,
         username=
             body.username,
 
@@ -1440,6 +1446,8 @@ def admin_api_patch_representative(
 
         payload = (
             RepresentativeUpdateBody(
+                client_limit=body.client_limit,
+                rep_expires_at=body.rep_expires_at,
                 username=(
                     str(
                         current.get(

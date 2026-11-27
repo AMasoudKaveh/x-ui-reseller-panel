@@ -268,7 +268,7 @@ export default function RepresentativesPage({scope="admin"}:{scope?:"admin"|"res
             return <div className="rp-row" key={rep.id}>
               <div className="rp-name">{!isReseller?<label className="up-check" onClick={event=>event.stopPropagation()}><input type="checkbox" checked={selectedIds.has(rep.id)} onChange={()=>toggleSelected(rep.id)}/><span/></label>:null}<span className={`rp-presence ${rep.status==="Active"?"active":""}`}/><div><strong>{rep.username}</strong><span>R-{rep.id} · {rep.created_at}{rep.parent_username?` · Parent: ${rep.parent_username}`:" · Admin root"}</span></div></div>
               <div><span className={`rp-status-pill ${rep.status==="Active"?"active":"suspended"}`}>{rep.status==="Active"?<Wifi size={13}/>:<Ban size={13}/>} {rep.ancestor_locked?"Upstream blocked":rep.status}</span></div>
-              <div className="rp-usage"><div className="up-usage-progress"><div className="up-usage-fill" style={{width:`${pct}%`}}/></div><div className="up-usage-line"><span>{usedGB.toFixed(1)} / {quotaGB.toFixed(1)} GB</span><span>{pct.toFixed(0)}%</span></div><small>Lifetime: direct {bytesToGB(rep.direct_used_bytes||0).toFixed(1)} · network {bytesToGB(rep.descendant_used_bytes||0).toFixed(1)} GB</small></div>
+              <div className="rp-usage"><div className="up-usage-progress"><div className="up-usage-fill" style={{width:`${pct}%`}}/></div><div className="up-usage-line"><span>{usedGB.toFixed(1)} GB / {quotaGB > 0 ? `${quotaGB.toFixed(1)} GB` : "Unlimited"}</span>{quotaGB > 0 && <span>{pct.toFixed(0)}%</span>}</div><small>Lifetime: direct {bytesToGB(rep.direct_used_bytes||0).toFixed(1)} · network {bytesToGB(rep.descendant_used_bytes||0).toFixed(1)} GB</small>{!isReseller && Boolean(rep.client_limit) && <small>{rep.client_limit_used ?? rep.users} / {rep.client_limit} user slots used</small>}</div>
               <div className="rp-users"><strong>{rep.users}</strong><span>{rep.online} online · {rep.descendant_count||0} sub-reps</span></div>
               <div className="rp-inbounds"><Server size={15}/><strong>{rep.inbound_ids.length}</strong><span>assigned</span></div>
               <div className="up-actions" onClick={e=>e.stopPropagation()}>
@@ -295,6 +295,7 @@ export default function RepresentativesPage({scope="admin"}:{scope?:"admin"|"res
       <RepresentativeModal
         open={createOpen}
         mode="create"
+        adminLimits={!isReseller}
         inbounds={inbounds}
         onClose={()=>setCreateOpen(false)}
         onSubmit={async(input)=>{
@@ -318,6 +319,7 @@ export default function RepresentativesPage({scope="admin"}:{scope?:"admin"|"res
       <RepresentativeModal
         open={Boolean(modify)}
         mode="modify"
+        adminLimits={!isReseller}
         initial={modify??undefined}
         inbounds={inbounds}
         onClose={()=>setModify(null)}
@@ -394,14 +396,18 @@ type ModalSubmit = {
   username: string;
   password?: string;
   quota_bytes: number;
+  client_limit?: number;
+  rep_expires_at?: number;
   status: AdminRepresentativeStatus;
   inbound_ids: number[];
 };
 
-function RepresentativeModal({open,mode,initial,inbounds,onClose,onSubmit}:{open:boolean;mode:"create"|"modify";initial?:AdminRepresentative;inbounds:AdminInbound[];onClose:()=>void;onSubmit:(input:ModalSubmit)=>Promise<void>}) {
+function RepresentativeModal({open,mode,adminLimits,initial,inbounds,onClose,onSubmit}:{open:boolean;mode:"create"|"modify";adminLimits:boolean;initial?:AdminRepresentative;inbounds:AdminInbound[];onClose:()=>void;onSubmit:(input:ModalSubmit)=>Promise<void>}) {
   const [username,setUsername]=useState("");
   const [password,setPassword]=useState("");
   const [quota,setQuota]=useState("500");
+  const [clientLimit,setClientLimit]=useState("");
+  const [expiry,setExpiry]=useState("");
   const [status,setStatus]=useState<AdminRepresentativeStatus>("Active");
   const [selected,setSelected]=useState<number[]>([]);
   const [query,setQuery]=useState("");
@@ -413,6 +419,9 @@ function RepresentativeModal({open,mode,initial,inbounds,onClose,onSubmit}:{open
     setUsername(initial?.username??"");
     setPassword("");
     setQuota(String(initial ? bytesToGB(initial.quota_bytes) : 500));
+    setClientLimit(initial?.client_limit ? String(initial.client_limit) : "");
+    const end = initial?.rep_expires_at ? new Date(initial.rep_expires_at * 1000) : null;
+    setExpiry(end ? new Date(end.getTime() - end.getTimezoneOffset() * 60_000).toISOString().slice(0, 19) : "");
     setStatus(initial ? (initial.raw_status === "active" || initial.quota_locked ? "Active" : "Suspended") : "Active");
     setSelected(initial?.inbound_ids??[]);
     setQuery("");
@@ -426,6 +435,8 @@ function RepresentativeModal({open,mode,initial,inbounds,onClose,onSubmit}:{open
 
     const cleanUsername = username.trim();
     const quotaNumber = Number(quota);
+    const userLimit = Number(clientLimit);
+    const expiration = expiry ? Math.floor(new Date(expiry).getTime() / 1000) : 0;
 
     if (!/^[A-Za-z0-9_.@-]{3,64}$/.test(cleanUsername)) {
       setFormError("Username must be 3-64 characters and contain only letters, numbers, . _ @ -");
@@ -447,6 +458,10 @@ function RepresentativeModal({open,mode,initial,inbounds,onClose,onSubmit}:{open
       return;
     }
 
+    if (adminLimits && (!Number.isInteger(userLimit) || userLimit < 0 || userLimit > 1_000_000 || !Number.isFinite(expiration) || expiration < 0)) {
+      setFormError("Enter a valid user limit and expiry date.");
+      return;
+    }
     setFormError("");
     setSubmitting(true);
     try {
@@ -454,6 +469,7 @@ function RepresentativeModal({open,mode,initial,inbounds,onClose,onSubmit}:{open
         username:cleanUsername,
         password,
         quota_bytes:Math.max(0,Math.round(quotaNumber*GB)),
+        ...(adminLimits ? {client_limit:userLimit,rep_expires_at:expiration} : {}),
         status,
         inbound_ids:selected,
       });
@@ -469,7 +485,15 @@ function RepresentativeModal({open,mode,initial,inbounds,onClose,onSubmit}:{open
       <div className="cu-form-column">
         <div className="cu-grid-two"><label className="cu-field"><span>Username <b>*</b></span><input value={username} onChange={e=>setUsername(e.target.value)} placeholder="Representative username"/></label><label className="cu-field"><span>{mode==="create"?"Password *":"New Password"}</span><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder={mode==="create"?"Login password":"Leave empty to keep current"}/></label></div>
         <div className="cu-grid-two"><label className="cu-field"><span>Traffic Quota (GB)</span><input inputMode="decimal" value={quota} onChange={e=>setQuota(e.target.value)}/></label><label className="cu-field"><span>Status</span><button className="cu-select" type="button" onClick={()=>setStatus(status==="Active"?"Suspended":"Active")}><span className={`cu-status-dot ${status==="Active"?"on":"off"}`}/><span>{status}</span><ChevronDown size={17}/></button></label></div>
-        {mode==="modify"&&<div className="rp-usage-preview"><div><span>Consumed Traffic</span><strong>{bytesToGB(initial?.used_bytes??0).toFixed(1)} GB</strong></div><div><span>Remaining</span><strong>{Math.max(0,(Number(quota)||0)-bytesToGB(initial?.used_bytes??0)).toFixed(1)} GB</strong></div><div><span>Users</span><strong>{initial?.users}</strong></div></div>}
+        {adminLimits && <>
+          <div className="cu-grid-two">
+            <label className="cu-field"><span>User limit</span><input type="number" min={0} max={1_000_000} step={1} value={clientLimit} onChange={e=>setClientLimit(e.target.value)} placeholder="0 = Unlimited"/></label>
+            <label className="cu-field"><span>Representative expiry</span><input type="datetime-local" step={1} value={expiry} onChange={e=>setExpiry(e.target.value)} /><small>Leave blank for no expiry.</small></label>
+          </div>
+          <label><input type="checkbox" checked={Number(quota) === 0 && quota !== ""} onChange={e=>setQuota(e.target.checked ? "0" : String(bytesToGB(initial?.quota_bytes || 500 * GB) || 500))}/> Unlimited traffic</label>
+          {initial?.client_limit ? <small>{initial.client_limit_used ?? initial.users} / {initial.client_limit} user slots used</small> : null}
+        </>}
+        {mode==="modify"&&<div className="rp-usage-preview"><div><span>Consumed Traffic</span><strong>{bytesToGB(initial?.used_bytes??0).toFixed(1)} GB</strong></div><div><span>Remaining</span><strong>{Number(quota) === 0 ? "Unlimited" : `${Math.max(0,(Number(quota)||0)-bytesToGB(initial?.used_bytes??0)).toFixed(1)} GB`}</strong></div><div><span>Users</span><strong>{initial?.users}</strong></div></div>}
         <div className="cu-auto-note"><Database size={18}/><span>Representative quota is based on real traffic usage, not the sum of client limits.</span></div>
         {formError ? <div className="rp-form-error" role="alert">{formError}</div> : null}
       </div>

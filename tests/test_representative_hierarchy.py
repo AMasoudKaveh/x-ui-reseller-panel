@@ -80,7 +80,8 @@ class RepresentativeHierarchyUsageTests(unittest.TestCase):
                       direct_used_bytes INTEGER DEFAULT 0,descendant_used_bytes INTEGER DEFAULT 0,
                       usage_baseline_bytes INTEGER DEFAULT 0,quota_locked INTEGER DEFAULT 0,
                       quota_locked_at TEXT,quota_prev_status TEXT,quota_last_reconciled_at TEXT,
-                      ancestor_locked INTEGER DEFAULT 0,ancestor_locked_by INTEGER,updated_at TEXT);
+                      ancestor_locked INTEGER DEFAULT 0,ancestor_locked_by INTEGER,updated_at TEXT,
+                      rep_expires_at INTEGER NOT NULL DEFAULT 0);
                     CREATE TABLE clients(id INTEGER PRIMARY KEY,seller_rep_id INTEGER,status TEXT,
                       rep_quota_hold INTEGER DEFAULT 0);
                     CREATE TABLE traffic_ledger(client_id INTEGER PRIMARY KEY,cumulative_used_bytes INTEGER);
@@ -121,6 +122,27 @@ class RepresentativeHierarchyUsageTests(unittest.TestCase):
             self.assertEqual(y["used_bytes"], 10)  # Y starts a new quota period.
             self.assertEqual(y["quota_locked"], 0)
             self.assertEqual(z["ancestor_locked"], 0)
+
+            with connect() as con:
+                con.execute("UPDATE representatives SET quota_bytes=0,rep_expires_at=1 WHERE id=1")
+                con.execute("UPDATE representatives SET status='suspended' WHERE id=3")
+                con.execute("INSERT INTO auth_sessions VALUES('expired-session','reseller',1)")
+                con.commit()
+
+            with patch.object(quota_module, "connect_db", connect), patch.object(quota_module, "ensure_live_schema"), patch.object(quota_module, "lock_eligible_clients") as hold, patch.object(quota_module, "restore_quota_clients", return_value=([], [])) as restore:
+                panel = object()
+                quota_module.reconcile_quotas(panel)
+                self.assertEqual([call.args[1] for call in hold.call_args_list], [1, 2, 3])
+                restore.assert_not_called()
+                with connect() as con:
+                    self.assertIsNone(con.execute("SELECT token FROM auth_sessions").fetchone())
+                    self.assertEqual(con.execute("SELECT ancestor_locked FROM representatives WHERE id=2").fetchone()[0], 1)
+                    con.execute("UPDATE representatives SET rep_expires_at=253402300799 WHERE id=1")
+                    con.commit()
+                hold.reset_mock()
+                quota_module.reconcile_quotas(panel)
+                self.assertEqual([call.args[1] for call in restore.call_args_list], [1, 2])
+                hold.assert_called_once_with(panel, 3)
         finally:
             anchor.close()
 

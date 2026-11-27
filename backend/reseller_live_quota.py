@@ -2071,7 +2071,7 @@ def restore_quota_clients(
 
 def finalize_rep_unlock(
     rep: dict,
-) -> None:
+) -> str:
     rep_id = to_int(
         rep.get("id"),
         0,
@@ -2124,6 +2124,9 @@ def finalize_rep_unlock(
         con.commit()
 
 
+    return restored_status
+
+
 def reconcile_quotas(
     xui: XUIClient,
 ) -> dict:
@@ -2136,6 +2139,7 @@ def reconcile_quotas(
 
     by_id = {to_int(rep.get("id"), 0): rep for rep in reps}
     self_blocked: set[int] = set()
+    now = int(time.time())
 
     # used_bytes is the real usage of the complete subtree. Traffic itself is
     # still recorded once, against its direct seller, in traffic_ledger.
@@ -2169,12 +2173,13 @@ def reconcile_quotas(
             with connect_db() as con:
                 current = con.execute("SELECT * FROM representatives WHERE id=?", (rep_id,)).fetchone()
             if current:
-                finalize_rep_unlock(dict(current))
+                status = finalize_rep_unlock(dict(current))
             rep["quota_locked"] = 0
-            status = str(rep.get("quota_prev_status") or "active")
             rep["status"] = status
 
-        if exceeded or status != "active":
+        # Expiry shares the quota hold without overwriting an admin suspension.
+        expiry = int(rep.get("rep_expires_at") or 0)
+        if exceeded or status != "active" or 0 < expiry <= now:
             self_blocked.add(rep_id)
 
     parent = {rep_id: (to_int(rep.get("parent_rep_id"), 0) or None) for rep_id, rep in by_id.items()}

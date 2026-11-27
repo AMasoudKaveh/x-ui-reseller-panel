@@ -463,9 +463,9 @@ def delete_from_panel(xui: XUIClient, local: dict) -> dict:
     ids = inbound_ids_for(panel, local)
     errors = []
     variants = [
+        ("POST", "/panel/api/clients/del/" + quote(email, safe=""), None),
         ("DELETE", "/panel/api/clients/" + quote(email, safe=""), None),
         ("POST", "/panel/api/clients/delete/" + quote(email, safe=""), None),
-        ("POST", "/panel/api/clients/del/" + quote(email, safe=""), None),
         ("POST", "/panel/api/clients/" + quote(email, safe="") + "/delete", None),
         ("POST", "/panel/api/clients/delete", {"email": email, "id": uid}),
     ]
@@ -484,7 +484,7 @@ def delete_from_panel(xui: XUIClient, local: dict) -> dict:
                 ok += 1
             except Exception as e:
                 classic_errors.append(f"inbound {iid}: {e}")
-        if ok > 0:
+        if ok == len(ids):
             return {"ok": True, "method": "classic delClient", "deleted_from_inbounds": ok, "errors": classic_errors}
         errors.extend(classic_errors)
     raise XUIError("Delete from x-ui failed after all variants: " + " | ".join(errors[-12:]))

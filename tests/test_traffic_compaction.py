@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 import backend.reseller_live_quota as quota
@@ -12,7 +13,7 @@ from scripts.compact_traffic_history import compact
 
 
 def seed(path: Path) -> None:
-    with sqlite3.connect(path) as con:
+    with closing(sqlite3.connect(path)) as con:
         con.executescript(
             """
             CREATE TABLE traffic_ledger(
@@ -48,7 +49,7 @@ class TrafficCompactionTests(unittest.TestCase):
             path = Path(td) / "auth.db"
             seed(path)
             compact(path, vacuum=False)
-            with sqlite3.connect(path) as con:
+            with closing(sqlite3.connect(path)) as con:
                 self.assertEqual(con.execute("SELECT cumulative_used_bytes FROM traffic_ledger").fetchone()[0], 600)
                 self.assertEqual(con.execute("SELECT COUNT(*) FROM traffic_events").fetchone()[0], 0)
                 self.assertEqual(con.execute("SELECT SUM(delta_bytes) FROM traffic_daily").fetchone()[0], 600)
@@ -59,7 +60,7 @@ class TrafficCompactionTests(unittest.TestCase):
             path = Path(td) / "snapshot.db"
             seed(path)
             _compact_portable_history(path)
-            with sqlite3.connect(path) as con:
+            with closing(sqlite3.connect(path)) as con:
                 self.assertEqual(con.execute("SELECT COUNT(*) FROM traffic_events").fetchone()[0], 0)
                 self.assertEqual(con.execute("SELECT SUM(delta_bytes) FROM traffic_daily").fetchone()[0], 600)
                 self.assertEqual(con.execute("SELECT cumulative_used_bytes FROM traffic_ledger").fetchone()[0], 600)

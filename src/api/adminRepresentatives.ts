@@ -6,6 +6,10 @@ export type AdminRepresentative = {
   id: number;
   username: string;
   quota_bytes: number;
+  client_limit?: number;
+  client_limit_used?: number;
+  rep_expires_at?: number;
+  expired?: boolean;
   used_bytes: number;
   direct_used_bytes: number;
   descendant_used_bytes: number;
@@ -40,6 +44,8 @@ export type RepresentativeInput = {
   username: string;
   password?: string;
   quota_bytes: number;
+  client_limit?: number;
+  rep_expires_at?: number;
   status: AdminRepresentativeStatus;
   inbound_ids: number[];
 };
